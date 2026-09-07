@@ -31,15 +31,16 @@ Diretorio de fontes: `fontes/`.
 - `consulta_cand_2026_DF.csv`: 661 linhas, 50 colunas, `;`, Latin-1.
 - `consulta_cand_complementar_2026_DF.csv`: 661 linhas, 49 colunas, `;`, Latin-1.
 - `eleitorado_local_votacao_2026_DF.csv`: 7.050 linhas, 41 colunas, `;`, Latin-1.
-- `perfil_eleitor_secao_2026_DF.csv`: 1.233.369 linhas, ainda nao carregado.
-- `votacao_secao_2022_DF.csv`: 1.238.611 linhas, ainda nao carregado; carga completa continua fora do escopo ate autorizacao explicita.
+- `perfil_eleitor_secao_2026_DF.csv`: 1.233.369 linhas, carregado em staging.
+- `votacao_secao_2022_DF.csv`: 1.238.611 linhas, estrutura criada em staging, mas ainda nao carregado; carga completa continua fora do escopo ate autorizacao explicita.
 - Planilhas TRE 2026 em `.xlsx`: locais, locais/secao, locais/secao agrupadas e secoes.
-- `geo_ra_centroid_atualizado.json`: 35 centroides em EPSG:4326.
+- `geo_ra_centroid_atualizado.json`: 35 centroides em EPSG:4326; 34 aproveitados diretamente e 1 descartado por cair fora do poligono (`RA-XXIII / VARJÃO`).
 - `fontes/shapefile_ras/regioes_administrativas.*`: 37 poligonos de RAs, SIRGAS 2000 / UTM Zone 23S, carregado no staging como SRID 31983.
 
 Pontos de negocio ja identificados:
 
-- Faltam centroides no GeoJSON para `RA-XXXVI / 26 DE SETEMBRO` e `RA-XXXVII / PONTE ALTA`; calcular depois a partir dos poligonos com `st_pointonsurface`.
+- Faltavam centroides no GeoJSON para `RA-XXXVI / 26 DE SETEMBRO` e `RA-XXXVII / PONTE ALTA`; ambos foram calculados a partir dos poligonos com `st_pointonsurface`.
+- O centroide do GeoJSON para `RA-XXIII / VARJÃO` caiu fora do poligono e tambem foi substituido por centroide calculado.
 - `SQ_CANDIDATO = -1` representa branco/nulo na votacao.
 - `SQ_CANDIDATO = -3` representa voto de legenda.
 - Votacao 2022 deve permitir granularidade `UF -> RA -> Local -> Secao -> Cargo -> Votavel`.
@@ -54,8 +55,19 @@ Arquivos principais:
 - `sql/00_extensions_schemas.sql`
 - `sql/01_staging/01_staging_small_medium.sql`
 - `scripts/load_staging.py`
+- `sql/01_staging/02_staging_large.sql`
+- `scripts/load_large_staging.py`
+- `sql/02_dimensoes/01_dim_uf.sql`
+- `sql/02_dimensoes/02_dim_eleicao.sql`
+- `sql/02_dimensoes/03_dimensoes_eleitorais_basicas.sql`
+- `sql/03_geoespacial/01_ra_geometria.sql`
 - `tests/sql/00_extensions_schemas_test.sql`
 - `tests/sql/01_staging_small_medium_test.sql`
+- `tests/sql/02_staging_large_test.sql`
+- `tests/sql/03_dim_uf_test.sql`
+- `tests/sql/04_dim_eleicao_test.sql`
+- `tests/sql/05_ra_geometria_test.sql`
+- `tests/sql/06_dimensoes_eleitorais_basicas_test.sql`
 - `docs/modelagem_banco_eleitoral_postgis.md`
 - `docs/planejamento_implementacao_banco_eleitoral.md`
 - `docs/diario_implementacao.md`
@@ -116,9 +128,100 @@ Etapa 3 - Staging dos arquivos pequenos e medios:
   - `stg.ra_shapefile`: 37 registros, 37 geometrias preenchidas, 0 geometrias invalidas por `st_isvalid`.
   - `stg.tre_secoes_2026_df`: 1 linha `Totais`, 6.961 linhas uteis.
 
+Etapa 4 - Staging dos arquivos grandes:
+
+- Criado e executado `sql/01_staging/02_staging_large.sql`.
+- Criado e executado `scripts/load_large_staging.py`.
+- Criado e executado `tests/sql/02_staging_large_test.sql`.
+- Tabelas criadas em `stg`:
+  - `perfil_eleitor_secao_2026_df`.
+  - `votacao_secao_2022_df`.
+- Carga executada:
+  - `perfil_eleitor_secao_2026_df`: 1.233.369 linhas.
+  - secoes distintas no perfil: 7.042.
+  - soma de `qt_eleitores`: 2.253.132.
+- Carga nao executada:
+  - `votacao_secao_2022_df`: 0 linhas, por falta de autorizacao explicita para carga completa.
+- Validacao:
+  - teste SQL da Etapa 4 retornou zero linhas.
+
+Etapa 5 - Dimensao UF:
+
+- Criado e executado `sql/02_dimensoes/01_dim_uf.sql`.
+- Criado e executado `tests/sql/03_dim_uf_test.sql`.
+- Tabela criada: `dim.uf`.
+- Registro carregado:
+  - `uf_id = 1`
+  - `sigla = DF`
+  - `nome = Distrito Federal`
+  - `codigo_ibge = 53`
+- Validacao:
+  - teste SQL retornou zero linhas.
+  - consulta direta em `dim.uf` retornou exatamente a linha esperada para DF.
+
+Etapa 6 - Dimensao eleicao:
+
+- Criado e executado `sql/02_dimensoes/02_dim_eleicao.sql`.
+- Criado e executado `tests/sql/04_dim_eleicao_test.sql`.
+- Tabela criada: `dim.eleicao`.
+- Registro carregado:
+  - `eleicao_id = 1`
+  - `ano = 2026`
+  - `turno = 1`
+  - `cd_eleicao = 6259`
+  - `ds_eleicao = Eleições Gerais Estaduais 2026`
+  - `cd_tipo_eleicao = 2`
+  - `nm_tipo_eleicao = ELEIÇÃO ORDINÁRIA`
+  - `dt_eleicao = 2026-10-04`
+  - `tp_abrangencia = ESTADUAL`
+- Fonte principal: `stg.consulta_cand_2026_df`.
+- Observacao: `stg.eleitorado_local_votacao_2026_df.ds_eleicao` traz `1º Turno`, entao nao foi usada como descricao principal.
+- Validacao:
+  - teste SQL retornou zero linhas.
+  - nenhuma eleicao 2022 foi criada porque `stg.votacao_secao_2022_df` segue vazia.
+
+Etapa 7 - Geoespacial de RAs:
+
+- Criado e executado `sql/03_geoespacial/01_ra_geometria.sql`.
+- Criado e executado `tests/sql/05_ra_geometria_test.sql`.
+- Tabelas criadas/populadas:
+  - `dim.regiao_administrativa`: 37 RAs.
+  - `geo.ra_geometria`: 37 geometrias.
+- Geometrias:
+  - `geom_utm`: MultiPolygon SRID 31983.
+  - `geom`: MultiPolygon SRID 4326.
+- Centroides:
+  - 34 com origem `geojson`.
+  - 3 com origem `calculado_shapefile`.
+  - calculados para `RA-XXIII / VARJÃO`, `RA-XXXVI / 26 DE SETEMBRO` e `XXXVII / PONTE ALTA`.
+- Validacao:
+  - teste SQL retornou zero linhas.
+  - todas as RAs tem geometria e centroide.
+  - todas as geometrias sao validas.
+  - todos os centroides ficam cobertos pelo poligono correspondente.
+
+Etapa 8 - Dimensoes eleitorais basicas:
+
+- Criado e executado `sql/02_dimensoes/03_dimensoes_eleitorais_basicas.sql`.
+- Criado e executado `tests/sql/06_dimensoes_eleitorais_basicas_test.sql`.
+- Tabelas criadas/populadas:
+  - `dim.zona_eleitoral`: 19 zonas.
+  - `dim.cargo_eleitoral`: 7 cargos.
+  - `dim.partido_politico`: 29 partidos.
+  - `dim.federacao`: 5 federacoes reais.
+  - `dim.coligacao`: 62 coligacoes.
+- Regra adotada:
+  - `NR_FEDERACAO = -1 / #NULO` foi tratado como ausencia de federacao e excluido de `dim.federacao`.
+  - coligacoes com `PARTIDO ISOLADO` foram mantidas em `dim.coligacao` porque possuem `SQ_COLIGACAO` real e serao usadas no relacionamento de candidatos.
+- Validacao:
+  - teste SQL retornou zero linhas.
+  - nao ha duplicidade nas chaves naturais validadas.
+
 ## Observacoes Tecnicas
 
 - `scripts/load_staging.py` usa Python local com `psycopg`, `openpyxl` e `pyshp`.
+- `scripts/load_large_staging.py` usa Python local com `psycopg` e carrega CSVs grandes por streaming via `COPY`.
+- `scripts/load_large_staging.py` carrega apenas perfil por padrao; a votacao so carrega com `--include-votacao`, que nao deve ser usado sem autorizacao explicita.
 - O loader e idempotente por padrao: trunca as tabelas antes da carga, salvo uso de `--no-truncate`.
 - Campos de origem foram preservados como `text`.
 - Todas as tabelas de staging incluem `source_file`, `loaded_at` e `row_number`.
@@ -140,7 +243,7 @@ Etapa 3 - Staging dos arquivos pequenos e medios:
 - Nao ha remoto configurado.
 - Nao houve push para GitHub.
 - O usuario decidiu publicar no GitHub manualmente depois.
-- Esta atualizacao do resumo ocorreu apos o commit inicial; se desejado, incluir este arquivo em um proximo commit local antes do push manual.
+- Alteracoes posteriores ao commit inicial podem estar pendentes no working tree; conferir com `git status --short` antes de novo commit/push manual.
 
 ## O Que Funciona
 
@@ -148,16 +251,20 @@ Etapa 3 - Staging dos arquivos pequenos e medios:
 - Banco aceita conexao via `docker compose exec` e via host em `localhost:5432`.
 - Extensoes e schemas base estao aplicados.
 - Staging pequeno/medio esta criado e carregado.
-- Testes SQL das Etapas 2 e 3 passam retornando zero linhas.
+- Staging de perfil do eleitorado esta criado e carregado.
+- Estrutura de staging de votacao esta criada e vazia.
+- `dim.uf` esta criada e populada com DF.
+- `dim.eleicao` esta criada e populada com a eleicao 2026.
+- `dim.regiao_administrativa` e `geo.ra_geometria` estao criadas e populadas com 37 RAs.
+- Dimensoes eleitorais basicas estao criadas e populadas.
+- Testes SQL das Etapas 2, 3, 4, 5, 6, 7 e 8 passam retornando zero linhas.
 - Geometrias brutas das RAs estao carregadas em `stg.ra_shapefile.geom` com SRID 31983 e sao validas.
 
 ## O Que Ainda Esta Incompleto
 
-- Etapa 4 ainda nao implementada.
-- Staging dos arquivos grandes ainda nao criado/carregado.
-- `perfil_eleitor_secao_2026_DF.csv` ainda nao foi carregado.
+- Etapa 9 ainda nao implementada.
 - `votacao_secao_2022_DF.csv` ainda nao foi carregado; nao carregar integralmente sem autorizacao explicita.
-- Nenhuma dimensao final (`dim.*`) foi criada/populada.
+- Nenhuma dimensao final alem de `dim.uf`, `dim.eleicao`, `dim.regiao_administrativa`, `dim.zona_eleitoral`, `dim.cargo_eleitoral`, `dim.partido_politico`, `dim.federacao` e `dim.coligacao` foi criada/populada.
 - Nenhuma fato (`fato.*`) foi criada/populada.
 - Nenhuma view final foi criada.
 - Nenhuma regra automatizada de qualidade em `aux.qualidade_dado` foi implementada.
@@ -249,39 +356,91 @@ docker compose exec -T db psql -U eleitoral_app -d eleitoral -f /tests/sql/01_st
 
 Resultado esperado: zero linhas.
 
-10. Se o volume tiver sido perdido ou se o banco estiver vazio, reaplicar na ordem:
+10. Conferir staging grande:
+
+```powershell
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -f /tests/sql/02_staging_large_test.sql
+```
+
+Resultado esperado: zero linhas.
+
+11. Conferir dimensao UF:
+
+```powershell
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -f /tests/sql/03_dim_uf_test.sql
+```
+
+Resultado esperado: zero linhas.
+
+12. Conferir dimensao eleicao:
+
+```powershell
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -f /tests/sql/04_dim_eleicao_test.sql
+```
+
+Resultado esperado: zero linhas.
+
+13. Conferir geoespacial de RAs:
+
+```powershell
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -f /tests/sql/05_ra_geometria_test.sql
+```
+
+Resultado esperado: zero linhas.
+
+14. Conferir dimensoes eleitorais basicas:
+
+```powershell
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -f /tests/sql/06_dimensoes_eleitorais_basicas_test.sql
+```
+
+Resultado esperado: zero linhas.
+
+15. Se o volume tiver sido perdido ou se o banco estiver vazio, reaplicar na ordem:
 
 ```powershell
 docker compose up -d
 docker compose exec -T db psql -U eleitoral_app -d eleitoral -f /sql/00_extensions_schemas.sql
 docker compose exec -T db psql -U eleitoral_app -d eleitoral -f /sql/01_staging/01_staging_small_medium.sql
 python scripts\load_staging.py
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -f /sql/01_staging/02_staging_large.sql
+python scripts\load_large_staging.py
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -f /sql/02_dimensoes/01_dim_uf.sql
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -f /sql/02_dimensoes/02_dim_eleicao.sql
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -f /sql/02_dimensoes/03_dimensoes_eleitorais_basicas.sql
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -f /sql/03_geoespacial/01_ra_geometria.sql
 docker compose exec -T db psql -U eleitoral_app -d eleitoral -f /tests/sql/00_extensions_schemas_test.sql
 docker compose exec -T db psql -U eleitoral_app -d eleitoral -f /tests/sql/01_staging_small_medium_test.sql
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -f /tests/sql/02_staging_large_test.sql
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -f /tests/sql/03_dim_uf_test.sql
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -f /tests/sql/04_dim_eleicao_test.sql
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -f /tests/sql/05_ra_geometria_test.sql
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -f /tests/sql/06_dimensoes_eleitorais_basicas_test.sql
 ```
 
 ## Proximo Passo Exato
 
-Implementar a Etapa 4 - Staging dos arquivos grandes.
+Implementar a Etapa 9 - Dimensao local de votacao.
 
 Entregaveis esperados:
 
-- DDL em `sql/01_staging/02_staging_large.sql` ou nome equivalente coerente.
-- Teste SQL em `tests/sql/02_staging_large_test.sql`.
-- Ajuste ou novo loader para `perfil_eleitor_secao_2026_DF.csv`.
-- Criar estrutura de staging para `votacao_secao_2022_DF.csv`, mas nao executar a carga completa sem autorizacao explicita.
+- DDL/populacao em `sql/02_dimensoes/04_dim_local_votacao.sql`.
+- Teste SQL em `tests/sql/07_dim_local_votacao_test.sql` ou nome equivalente coerente.
+- Criar e popular `dim.local_votacao`.
+- Usar fontes `stg.eleitorado_local_votacao_2026_df` e `stg.tre_locais_2026_df`.
+- Gerar `geom` de latitude/longitude quando disponiveis.
+- Derivar `ra_id` por intersecao espacial com `geo.ra_geometria`.
+- Registrar ou ao menos identificar locais sem coordenada/RA para futura qualidade.
 - Registrar resultados em `docs/diario_implementacao.md` e `docs/validacoes_manuais.md`.
 - Atualizar este resumo ao final da proxima sessao.
 
-Estrategia recomendada para Etapa 4:
+Estrategia recomendada para Etapa 9:
 
-- Ler cabeçalhos reais de `perfil_eleitor_secao_2026_DF.csv` e `votacao_secao_2022_DF.csv`.
-- Criar tabelas com colunas de origem como `text` e metadados `source_file`, `loaded_at`, `row_number`.
-- Carregar `perfil_eleitor_secao_2026_DF.csv` por streaming/chunks ou `COPY`, evitando leitura integral em memoria.
-- Validar `perfil_eleitor_secao_2026_DF.csv`:
-  - total esperado: 1.233.369 linhas.
-  - secoes distintas esperadas: 7.042.
-- Para `votacao_secao_2022_DF.csv`, criar DDL e teste estrutural; carga completa continua pendente de autorizacao.
+- A chave natural deve ser `eleicao_id + uf_id + nr_local_votacao`.
+- Consolidar nome/endereco por local a partir do CSV oficial e planilhas TRE.
+- Usar coordenadas do CSV quando validas; se necessario, complementar com `tre_locais_2026_df`.
+- Validar quantidade esperada de 108 numeros de locais distintos para 2026.
+- Validar `locais_sem_geom` e `locais_sem_ra`; se houver, documentar.
 
 ## Comandos Uteis
 
