@@ -1,0 +1,25 @@
+services:
+  db:
+    image: postgis/postgis:16-3.5
+    container_name: eleitoral_postgis
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-eleitoral}
+      POSTGRES_USER: ${POSTGRES_USER:-eleitoral_app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-trocar_senha}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./fontes:/fontes:ro
+      - ./sql:/sql:ro
+      - ./tests:/tests:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-eleitoral_app} -d ${POSTGRES_DB:-eleitoral}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  postgres_data:
