@@ -1,193 +1,169 @@
 # Resumo de contexto para proxima sessao
 
 Data de encerramento: 2026-09-07
+Workspace: `C:\Users\mnt50\DEV\code_teste_r2`
 
-## Objetivo do projeto
+## Objetivo
 
-Implementar um banco de dados relacional e geoespacial em PostgreSQL/PostGIS para servir como fonte de dados de um futuro sistema de inteligencia eleitoral. O banco deve permitir consultas, filtros, comparativos e cruzamentos de votacao e eleitorado por UF, regiao administrativa, local de votacao, zona eleitoral e secao eleitoral.
+Construir um banco PostgreSQL/PostGIS para inteligencia eleitoral no DF, com camadas `stg`, `dim`, `fato`, `geo` e `aux`, capaz de suportar consultas e cruzamentos por UF, regiao administrativa, local de votacao, zona, secao, cargo, candidato/votavel e perfil do eleitorado.
 
-## Fontes de dados
+## Arquitetura Atual
 
-Diretorio de fontes: `fontes/`
-
-Arquivos analisados:
-
-- `consulta_cand_2026_DF.csv`
-- `consulta_cand_complementar_2026_DF.csv`
-- `eleitorado_local_votacao_2026_DF.csv`
-- `perfil_eleitor_secao_2026_DF.csv`
-- `votacao_secao_2022_DF.csv`
-- planilhas TRE de locais e secoes em `.xlsx`
-- `geo_ra_centroid_atualizado.json`
-- shapefile `fontes/shapefile_ras/regioes_administrativas.*`
-- PDFs de dicionario de dados associados
-
-Pontos relevantes ja identificados:
-
-- CSVs principais usam `;` e encoding Latin-1.
-- Shapefile de RAs possui 37 poligonos em SIRGAS 2000 / UTM Zone 23S.
-- GeoJSON de centroides possui 35 centroides em EPSG:4326.
-- Faltam centroides no GeoJSON para `RA-XXXVI / 26 DE SETEMBRO` e `XXXVII / PONTE ALTA`; esses devem ser calculados a partir dos poligonos do shapefile usando `st_pointonsurface`.
-- `votacao_secao_2022_DF.csv` possui 1.238.611 linhas e 26 colunas.
-- A votacao de 2022 permite granularidade `UF -> RA -> Local -> Secao -> Cargo -> Votavel`.
-- Na votacao, `SQ_CANDIDATO = -1` representa branco/nulo e `SQ_CANDIDATO = -3` representa voto de legenda.
-
-## Documentos criados
-
-- `docs/modelagem_banco_eleitoral_postgis.md`
-  - Modelagem relacional e geoespacial.
-  - Schemas previstos: `stg`, `dim`, `fato`, `geo`, `aux`.
-  - Dimensoes: eleicao, UF, RA, local, zona, secao, partido, cargo, federacao, coligacao, candidato, perfil eleitor, votavel.
-  - Fatos: perfil do eleitorado por secao, votacao por candidato/votavel/secao, apuracao por secao.
-  - View recomendada: `fato.vw_votacao_drilldown`.
-
-- `docs/planejamento_implementacao_banco_eleitoral.md`
-  - Plano incremental de implementacao em 18 etapas.
-  - Cada etapa tem objetivo, entregaveis, validacoes manuais e criterio de aceite.
-  - Proximas etapas imediatas: Etapa 2, depois Etapa 3.
-
-- `docs/diario_implementacao.md`
-  - Registro das etapas executadas.
-  - Etapa 0 concluida.
-  - Etapa 1 concluida.
-  - Etapa 2 concluida.
-  - Etapa 3 concluida.
-
-- `docs/validacoes_manuais.md`
-  - Comandos e consultas usados para validar Etapas 0 e 1.
-
-## Estado atual da implementacao
-
-Etapa 0 - concluida:
-
-- Estrutura inicial de diretorios criada:
-  - `sql/`
-  - `sql/01_staging/`
-  - `sql/02_dimensoes/`
-  - `sql/03_geoespacial/`
-  - `sql/04_fatos/`
-  - `sql/05_views/`
-  - `sql/99_qualidade/`
-  - `scripts/`
-  - `tests/`
-  - `tests/sql/`
-  - `tests/expected/`
-  - `docs/`
-- Arquivos README criados nas pastas de apoio.
-- `.env.example` criado.
-
-Etapa 1 - concluida:
-
-- `docker-compose.yml` criado.
-- Servico `db` configurado com:
-  - imagem `postgis/postgis:16-3.5`
-  - container `eleitoral_postgis`
-  - porta `5432`
-  - volume persistente `postgres_data`
-  - montagem readonly de `./fontes` em `/fontes`
-  - healthcheck com `pg_isready`
-- Conteiner subiu com sucesso.
-- Banco respondeu a `pg_isready`.
-- Persistencia validada:
-  - tabela `aux_teste_persistencia` criada;
-  - registro `id = 1` inserido;
-  - executado `docker compose down`;
-  - executado `docker compose up -d`;
-  - registro continuou existindo.
-
-Estado atual do conteiner ao final da Etapa 1:
-
-- `eleitoral_postgis` estava rodando e `healthy`.
-- O volume persistente criado foi `code_teste_r2_postgres_data`.
-
-Etapa 2 - concluida:
-
-- `docker-compose.yml` atualizado com montagens readonly:
+- Banco em Docker Compose com servico unico `db`.
+- Imagem: `postgis/postgis:16-3.5`.
+- Container: `eleitoral_postgis`.
+- Banco: `eleitoral`.
+- Usuario: `eleitoral_app`.
+- Porta local: `5432`.
+- Volume persistente: `code_teste_r2_postgres_data`.
+- Montagens readonly:
+  - `./fontes:/fontes:ro`
   - `./sql:/sql:ro`
   - `./tests:/tests:ro`
-- `sql/00_extensions_schemas.sql` criado e executado.
-- `tests/sql/00_extensions_schemas_test.sql` criado e executado.
-- Extensoes:
-  - `postgis` confirmada; ja existia no banco.
-  - `unaccent` criada.
-- Schemas criados:
-  - `stg`
-  - `dim`
-  - `fato`
-  - `geo`
-  - `aux`
-- Validacoes:
-  - `postgis_full_version()` retornou PostGIS `3.5.2`.
-  - consulta dos schemas retornou `aux`, `dim`, `fato`, `geo`, `stg`.
-  - teste SQL retornou zero linhas.
+- Schemas criados no banco: `stg`, `dim`, `fato`, `geo`, `aux`.
+- Extensoes ativas: `postgis` e `unaccent`.
+- PostGIS validado: `3.5.2`.
 
-Etapa 3 - concluida:
+## Fontes de Dados
 
-- `sql/01_staging/01_staging_small_medium.sql` criado e executado.
-- `scripts/load_staging.py` criado e executado.
-- `tests/sql/01_staging_small_medium_test.sql` criado e executado.
-- Tabelas criadas/carregadas em `stg`:
-  - `consulta_cand_2026_df`: 661 linhas.
-  - `consulta_cand_complementar_2026_df`: 661 linhas.
-  - `eleitorado_local_votacao_2026_df`: 7.050 linhas.
-  - `tre_locais_2026_df`: 615 linhas brutas, 614 uteis e 1 linha `Totais`.
-  - `tre_locais_secao_2026_df`: 615 linhas brutas, 614 uteis e 1 linha `Totais`.
-  - `tre_locais_secao_agrupadas_2026_df`: 615 linhas brutas, 614 uteis e 1 linha `Totais`.
-  - `tre_secoes_2026_df`: 6.962 linhas brutas, 6.961 uteis e 1 linha `Totais`.
-  - `geo_ra_centroid_atualizado`: 35 linhas.
-  - `ra_shapefile`: 37 linhas.
-- Validacoes:
-  - teste SQL de contagens retornou zero linhas.
-  - shapefile carregou 37 geometrias, todas validas por `st_isvalid`.
-- Observacao de qualidade:
-  - alguns XLSX, o GeoJSON e registros do shapefile possuem caracteres de substituicao em textos acentuados.
-  - a carga preserva os dados recebidos; normalizacao/correcao de nomes deve ocorrer na etapa geoespacial/dimensao RA.
+Diretorio de fontes: `fontes/`.
 
-## Arquivos de implementacao existentes
+- `consulta_cand_2026_DF.csv`: 661 linhas, 50 colunas, `;`, Latin-1.
+- `consulta_cand_complementar_2026_DF.csv`: 661 linhas, 49 colunas, `;`, Latin-1.
+- `eleitorado_local_votacao_2026_DF.csv`: 7.050 linhas, 41 colunas, `;`, Latin-1.
+- `perfil_eleitor_secao_2026_DF.csv`: 1.233.369 linhas, ainda nao carregado.
+- `votacao_secao_2022_DF.csv`: 1.238.611 linhas, ainda nao carregado; carga completa continua fora do escopo ate autorizacao explicita.
+- Planilhas TRE 2026 em `.xlsx`: locais, locais/secao, locais/secao agrupadas e secoes.
+- `geo_ra_centroid_atualizado.json`: 35 centroides em EPSG:4326.
+- `fontes/shapefile_ras/regioes_administrativas.*`: 37 poligonos de RAs, SIRGAS 2000 / UTM Zone 23S, carregado no staging como SRID 31983.
 
-Raiz do projeto:
+Pontos de negocio ja identificados:
+
+- Faltam centroides no GeoJSON para `RA-XXXVI / 26 DE SETEMBRO` e `RA-XXXVII / PONTE ALTA`; calcular depois a partir dos poligonos com `st_pointonsurface`.
+- `SQ_CANDIDATO = -1` representa branco/nulo na votacao.
+- `SQ_CANDIDATO = -3` representa voto de legenda.
+- Votacao 2022 deve permitir granularidade `UF -> RA -> Local -> Secao -> Cargo -> Votavel`.
+
+## Estado do Codigo
+
+Arquivos principais:
 
 - `.env.example`
+- `.gitignore`
 - `docker-compose.yml`
 - `sql/00_extensions_schemas.sql`
 - `sql/01_staging/01_staging_small_medium.sql`
 - `scripts/load_staging.py`
-
-Documentacao:
-
-- `docs/diario_implementacao.md`
+- `tests/sql/00_extensions_schemas_test.sql`
+- `tests/sql/01_staging_small_medium_test.sql`
 - `docs/modelagem_banco_eleitoral_postgis.md`
 - `docs/planejamento_implementacao_banco_eleitoral.md`
+- `docs/diario_implementacao.md`
 - `docs/validacoes_manuais.md`
 - `docs/resumo_contexto_proxima_sessao.md`
 
-Pastas preparadas, ainda sem scripts finais:
+Pastas prontas para proximas etapas:
 
-- `sql/01_staging/`
 - `sql/02_dimensoes/`
 - `sql/03_geoespacial/`
 - `sql/04_fatos/`
 - `sql/05_views/`
 - `sql/99_qualidade/`
-- `scripts/`
-- `tests/sql/`
 - `tests/expected/`
 
-Testes existentes:
+## Etapas Concluidas
 
-- `tests/sql/00_extensions_schemas_test.sql`
-- `tests/sql/01_staging_small_medium_test.sql`
+Etapa 0 - Preparacao do workspace:
 
-## O que ainda esta incompleto
+- Estrutura inicial de pastas criada.
+- READMEs de apoio criados.
+- `.env.example` criado.
+- Nenhuma fonte em `fontes/` alterada.
 
-- Etapa 4 ainda nao foi implementada.
-- Nenhuma tabela da modelagem foi criada, exceto a tabela temporaria/de validacao `aux_teste_persistencia`.
-- Nenhuma carga de dados grandes foi implementada.
-- Nenhuma regra de qualidade foi implementada.
+Etapa 1 - Conteineres e persistencia:
+
+- `docker-compose.yml` criado.
+- Container `eleitoral_postgis` subiu com PostGIS.
+- `pg_isready` validado.
+- Persistencia validada com tabela temporaria/de validacao `aux_teste_persistencia`, contendo `id = 1`, preservada apos `docker compose down` e novo `docker compose up -d`.
+
+Etapa 2 - Extensoes e schemas:
+
+- Criado e executado `sql/00_extensions_schemas.sql`.
+- Criado e executado `tests/sql/00_extensions_schemas_test.sql`.
+- `postgis` confirmada.
+- `unaccent` criada.
+- Schemas `stg`, `dim`, `fato`, `geo`, `aux` criados.
+- Teste SQL retornou zero linhas.
+
+Etapa 3 - Staging dos arquivos pequenos e medios:
+
+- Criado e executado `sql/01_staging/01_staging_small_medium.sql`.
+- Criado e executado `scripts/load_staging.py`.
+- Criado e executado `tests/sql/01_staging_small_medium_test.sql`.
+- Tabelas carregadas em `stg`:
+  - `consulta_cand_2026_df`: 661 linhas.
+  - `consulta_cand_complementar_2026_df`: 661 linhas.
+  - `eleitorado_local_votacao_2026_df`: 7.050 linhas.
+  - `tre_locais_2026_df`: 615 linhas brutas, 614 uteis, 1 linha `Totais`.
+  - `tre_locais_secao_2026_df`: 615 linhas brutas, 614 uteis, 1 linha `Totais`.
+  - `tre_locais_secao_agrupadas_2026_df`: 615 linhas brutas, 614 uteis, 1 linha `Totais`.
+  - `tre_secoes_2026_df`: 6.962 linhas brutas, 6.961 uteis, 1 linha `Totais`.
+  - `geo_ra_centroid_atualizado`: 35 linhas.
+  - `ra_shapefile`: 37 linhas.
+- Validacoes:
+  - teste de contagens retornou zero linhas.
+  - `stg.ra_shapefile`: 37 registros, 37 geometrias preenchidas, 0 geometrias invalidas por `st_isvalid`.
+  - `stg.tre_secoes_2026_df`: 1 linha `Totais`, 6.961 linhas uteis.
+
+## Observacoes Tecnicas
+
+- `scripts/load_staging.py` usa Python local com `psycopg`, `openpyxl` e `pyshp`.
+- O loader e idempotente por padrao: trunca as tabelas antes da carga, salvo uso de `--no-truncate`.
+- Campos de origem foram preservados como `text`.
+- Todas as tabelas de staging incluem `source_file`, `loaded_at` e `row_number`.
+- Tabelas vindas de XLSX incluem `is_total` para separar a linha `Totais`.
+- CSVs TSE foram lidos corretamente em Latin-1.
+- Alguns XLSX, o GeoJSON e registros do shapefile apresentam caracteres de substituicao em textos acentuados. A carga preserva os dados recebidos; normalizacao/correcao de nomes deve ser feita nas etapas de dimensoes/geoespacial, especialmente em RA.
+- O shapefile foi lido com `utf-8` e `encodingErrors="replace"` para garantir carga completa; tentativa com `cp1252` corrigiu um nome mas quebrou outro registro (`ÁGUAS CLARAS`).
+
+## Git
+
+- Repositorio Git local inicializado.
+- Branch atual: `main`.
+- Autor configurado localmente:
+  - `user.name=ManoelNT-DEV`
+  - `user.email=manoelbarros.iesb@gmail.com`
+- Commit inicial criado:
+  - `0336204 chore: versiona base inicial do projeto eleitoral`
+- `.gitignore` ignora `.env`, `.env.*` exceto `.env.example`, `fontes/`, caches Python e arquivos temporarios/logs.
+- Nao ha remoto configurado.
+- Nao houve push para GitHub.
+- O usuario decidiu publicar no GitHub manualmente depois.
+- Esta atualizacao do resumo ocorreu apos o commit inicial; se desejado, incluir este arquivo em um proximo commit local antes do push manual.
+
+## O Que Funciona
+
+- Ambiente Docker/PostGIS sobe e fica `healthy`.
+- Banco aceita conexao via `docker compose exec` e via host em `localhost:5432`.
+- Extensoes e schemas base estao aplicados.
+- Staging pequeno/medio esta criado e carregado.
+- Testes SQL das Etapas 2 e 3 passam retornando zero linhas.
+- Geometrias brutas das RAs estao carregadas em `stg.ra_shapefile.geom` com SRID 31983 e sao validas.
+
+## O Que Ainda Esta Incompleto
+
+- Etapa 4 ainda nao implementada.
+- Staging dos arquivos grandes ainda nao criado/carregado.
+- `perfil_eleitor_secao_2026_DF.csv` ainda nao foi carregado.
+- `votacao_secao_2022_DF.csv` ainda nao foi carregado; nao carregar integralmente sem autorizacao explicita.
+- Nenhuma dimensao final (`dim.*`) foi criada/populada.
+- Nenhuma fato (`fato.*`) foi criada/populada.
 - Nenhuma view final foi criada.
-- A carga completa de `votacao_secao_2022_DF.csv` continua explicitamente fora do escopo ate autorizacao futura.
+- Nenhuma regra automatizada de qualidade em `aux.qualidade_dado` foi implementada.
+- Tabela `aux_teste_persistencia` ainda existe apenas como artefato de validacao da Etapa 1.
 
-## Como retomar a proxima sessao
+## Como Reiniciar os Trabalhos
 
 1. Abrir o workspace:
 
@@ -195,36 +171,45 @@ Testes existentes:
 cd C:\Users\mnt50\DEV\code_teste_r2
 ```
 
-2. Conferir arquivos principais:
+2. Conferir contexto e plano:
 
 ```powershell
-Get-ChildItem -Force
-Get-ChildItem .\docs
+Get-Content .\docs\resumo_contexto_proxima_sessao.md -Raw
+Get-Content .\docs\diario_implementacao.md -Raw
+Get-Content .\docs\planejamento_implementacao_banco_eleitoral.md -Raw
 ```
 
-3. Ler rapidamente:
+3. Conferir Git local:
 
-- `docs/resumo_contexto_proxima_sessao.md`
-- `docs/diario_implementacao.md`
-- `docs/planejamento_implementacao_banco_eleitoral.md`
-- `docs/modelagem_banco_eleitoral_postgis.md`
+```powershell
+git status --short
+git branch --show-current
+git log --oneline -3
+git remote -v
+```
 
-4. Verificar Docker:
+Estado esperado:
+
+- Branch `main`.
+- Commit inicial `0336204` no historico.
+- Sem remoto configurado, salvo se o usuario tiver configurado manualmente depois.
+
+4. Conferir Docker:
 
 ```powershell
 docker --version
 docker compose version
 ```
 
-5. Reiniciar/subir conteineres:
+5. Subir/reiniciar container:
 
 ```powershell
 docker compose up -d
 ```
 
-Observacao: no Windows, este comando pode exigir acesso elevado ao Docker Engine. Na sessao anterior, foi necessario executar comandos Docker com permissao elevada.
+Observacao: neste Windows, comandos Docker podem exigir acesso elevado ao Docker Engine. Se aparecer `open //./pipe/docker_engine: Access is denied`, executar com permissao elevada.
 
-6. Conferir status:
+6. Conferir container:
 
 ```powershell
 docker compose ps
@@ -236,7 +221,7 @@ Resultado esperado:
 eleitoral_postgis   postgis/postgis:16-3.5   db   Up ... (healthy)   0.0.0.0:5432->5432/tcp
 ```
 
-7. Conferir disponibilidade do PostgreSQL:
+7. Conferir PostgreSQL:
 
 ```powershell
 docker compose exec -T db pg_isready -U eleitoral_app -d eleitoral
@@ -248,55 +233,77 @@ Resultado esperado:
 /var/run/postgresql:5432 - accepting connections
 ```
 
-8. Conferir persistencia ja validada:
+8. Conferir schemas/extensoes:
 
 ```powershell
-docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select * from aux_teste_persistencia;"
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -f /tests/sql/00_extensions_schemas_test.sql
 ```
 
-Resultado esperado:
+Resultado esperado: zero linhas.
 
-```text
- id
-----
-  1
+9. Conferir staging pequeno/medio:
+
+```powershell
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -f /tests/sql/01_staging_small_medium_test.sql
 ```
 
-## Proximo passo exato
+Resultado esperado: zero linhas.
+
+10. Se o volume tiver sido perdido ou se o banco estiver vazio, reaplicar na ordem:
+
+```powershell
+docker compose up -d
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -f /sql/00_extensions_schemas.sql
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -f /sql/01_staging/01_staging_small_medium.sql
+python scripts\load_staging.py
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -f /tests/sql/00_extensions_schemas_test.sql
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -f /tests/sql/01_staging_small_medium_test.sql
+```
+
+## Proximo Passo Exato
 
 Implementar a Etapa 4 - Staging dos arquivos grandes.
 
-Escopo:
+Entregaveis esperados:
 
-- Criar staging para `perfil_eleitor_secao_2026_DF.csv`.
-- Preparar staging para `votacao_secao_2022_DF.csv`, sem executar a carga completa ate autorizacao explicita.
+- DDL em `sql/01_staging/02_staging_large.sql` ou nome equivalente coerente.
+- Teste SQL em `tests/sql/02_staging_large_test.sql`.
+- Ajuste ou novo loader para `perfil_eleitor_secao_2026_DF.csv`.
+- Criar estrutura de staging para `votacao_secao_2022_DF.csv`, mas nao executar a carga completa sem autorizacao explicita.
+- Registrar resultados em `docs/diario_implementacao.md` e `docs/validacoes_manuais.md`.
+- Atualizar este resumo ao final da proxima sessao.
 
-Observacao:
+Estrategia recomendada para Etapa 4:
 
-- A proxima carga grande autorizada no planejamento e `perfil_eleitor_secao_2026_DF.csv`.
-- `votacao_secao_2022_DF.csv` deve permanecer fora de carga completa ate decisao futura.
+- Ler cabeçalhos reais de `perfil_eleitor_secao_2026_DF.csv` e `votacao_secao_2022_DF.csv`.
+- Criar tabelas com colunas de origem como `text` e metadados `source_file`, `loaded_at`, `row_number`.
+- Carregar `perfil_eleitor_secao_2026_DF.csv` por streaming/chunks ou `COPY`, evitando leitura integral em memoria.
+- Validar `perfil_eleitor_secao_2026_DF.csv`:
+  - total esperado: 1.233.369 linhas.
+  - secoes distintas esperadas: 7.042.
+- Para `votacao_secao_2022_DF.csv`, criar DDL e teste estrutural; carga completa continua pendente de autorizacao.
 
-## Comandos uteis de operacao
+## Comandos Uteis
 
-Subir conteineres:
+Subir container:
 
 ```powershell
 docker compose up -d
 ```
 
-Parar e remover conteineres sem apagar volume:
+Parar sem apagar dados:
 
 ```powershell
 docker compose down
 ```
 
-Ver logs do banco:
+Ver logs:
 
 ```powershell
 docker compose logs db
 ```
 
-Abrir shell SQL:
+Abrir `psql`:
 
 ```powershell
 docker compose exec db psql -U eleitoral_app -d eleitoral
@@ -308,16 +315,16 @@ Executar SQL inline:
 docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select current_database(), current_user;"
 ```
 
-Listar volumes Docker do projeto:
+Listar volumes:
 
 ```powershell
 docker volume ls
 ```
 
-Nao usar salvo decisao explicita de reset total:
+Nao executar salvo decisao explicita de reset total:
 
 ```powershell
 docker compose down -v
 ```
 
-Esse comando apaga o volume persistente e destruiria os dados do banco.
+Esse comando apaga o volume persistente e destruiria os dados carregados no banco.
