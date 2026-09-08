@@ -14,9 +14,14 @@ with checks(check_name, expected_value, actual_value) as (
             )
         ),
         (
-            'votacao_secao_2022_df_count_sem_carga_autorizada',
-            0,
+            'votacao_secao_2022_df_count_piloto_ze20',
+            44464,
             (select count(*)::integer from stg.votacao_secao_2022_df)
+        ),
+        (
+            'votacao_secao_2022_df_zona_piloto',
+            20,
+            (select min(nr_zona::integer) from stg.votacao_secao_2022_df)
         )
 )
 select check_name, expected_value, actual_value

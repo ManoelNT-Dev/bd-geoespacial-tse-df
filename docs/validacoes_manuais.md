@@ -196,7 +196,7 @@ Observacao:
 
 - Esse comando carrega `perfil_eleitor_secao_2026_DF.csv`.
 - Por padrao, ele nao carrega `votacao_secao_2022_DF.csv`.
-- Para carregar votacao seria necessario usar `--include-votacao`, mas isso continua fora do escopo ate autorizacao explicita.
+- A opcao `--include-votacao` nao deve ser usada para carga completa de 2022; o arquivo 2022 fica restrito a piloto/modelagem.
 
 Executar teste automatizado simples:
 
@@ -408,3 +408,365 @@ coligacoes: 62
 Observacao:
 
 - `NR_FEDERACAO = -1 / #NULO` foi tratado como ausencia de federacao e nao foi inserido em `dim.federacao`.
+
+## Etapa 9 - Dimensao local de votacao
+
+Aplicar DDL/populacao:
+
+```powershell
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -f /sql/02_dimensoes/04_dim_local_votacao.sql
+```
+
+Executar teste automatizado simples:
+
+```powershell
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -f /tests/sql/07_dim_local_votacao_test.sql
+```
+
+Resultado obtido:
+
+```text
+ check_name | expected_value | actual_value
+------------+----------------+--------------
+(0 rows)
+```
+
+Consultas manuais executadas:
+
+```powershell
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select count(*) as locais, count(*) filter (where is_principal) as principais_tre, count(*) filter (where not is_principal) as adicionais_checar, count(distinct nr_local_votacao) as numeros_local, count(*) filter (where geom is null) as locais_sem_geom, count(*) filter (where geom is not null and ra_id is null) as locais_com_geom_sem_ra from dim.local_votacao;"
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select is_principal, fonte_tre_confirmada, source_priority, count(*) from dim.local_votacao group by is_principal, fonte_tre_confirmada, source_priority order by is_principal desc, source_priority;"
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select regra, severidade, count(*) from aux.qualidade_dado where entidade = 'local_votacao' group by regra, severidade order by regra;"
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select coalesce(ra.ra_nome, 'SEM RA') as ra_nome, count(*) as locais from dim.local_votacao lv left join dim.regiao_administrativa ra on ra.ra_id = lv.ra_id group by coalesce(ra.ra_nome, 'SEM RA') order by locais desc, ra_nome limit 12;"
+```
+
+Resultados obtidos:
+
+```text
+ locais | principais_tre | adicionais_checar | numeros_local | locais_sem_geom | locais_com_geom_sem_ra
+--------+----------------+-------------------+---------------+-----------------+------------------------
+    622 |            614 |                 8 |           108 |               3 |                      0
+```
+
+```text
+ is_principal | fonte_tre_confirmada |               source_priority               | count
+--------------+----------------------+---------------------------------------------+-------
+ t            | t                    | tre_locais_2026_confirmado                  |   614
+ f            | f                    | csv_eleitorado_local_votacao_2026_adicional |     8
+```
+
+```text
+                 regra                 | severidade | count
+---------------------------------------+------------+-------
+ local_csv_sem_tre                     | aviso      |     8
+ local_sem_coordenada                  | erro       |     3
+ nr_local_votacao_reutilizado_em_zonas | info       |    90
+```
+
+```text
+     ra_nome      | locais
+------------------+--------
+ CEILANDIA        |     77
+ PLANO PILOTO     |     58
+ TAGUATINGA       |     57
+ PLANALTINA       |     44
+ SAMAMBAIA        |     36
+ GAMA             |     31
+ BRAZLANDIA       |     30
+ GUARA            |     28
+ SOBRADINHO       |     26
+ SANTA MARIA      |     23
+ RECANTO DAS EMAS |     21
+ PARANOA          |     20
+```
+
+Observacoes:
+
+- `NR_LOCAL_VOTACAO` nao e chave fisica unica: 90 numeros aparecem em mais de uma zona com endereco/coordenada diferente.
+- A chave natural de `dim.local_votacao` ficou como `eleicao_id + uf_id + nr_zona + nr_local_votacao`.
+- O CSV oficial contem 622 pares `zona + local`; a planilha `Locais_TRE_DF_2026.xlsx` contem 614, todos presentes no CSV e marcados como `is_principal = true`.
+- Os 8 pares adicionais do CSV foram mantidos com `is_principal = false` e registrados como aviso de qualidade.
+- Tres locais usam coordenada sentinela `-1/-1`; por isso ficaram sem `geom` e sem RA, com pendencia registrada em `aux.qualidade_dado`.
+
+## Etapa 10 - Dimensao secao eleitoral
+
+Aplicar DDL/populacao:
+
+```powershell
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -f /sql/02_dimensoes/05_dim_secao_eleitoral.sql
+```
+
+Executar teste automatizado simples:
+
+```powershell
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -f /tests/sql/08_dim_secao_eleitoral_test.sql
+```
+
+Resultado obtido:
+
+```text
+ check_name | expected_value | actual_value
+------------+----------------+--------------
+(0 rows)
+```
+
+Consultas manuais executadas:
+
+```powershell
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select count(*) as secoes_csv, count(*) filter (where is_secao_principal_tre) as oficiais_tre, count(*) filter (where fonte_tre_confirmada) as tre_expandida, count(*) filter (where ds_tipo_secao_agregada = 'Agregada') as agregadas, count(*) filter (where is_adicional_csv) as adicionais_csv, count(*) filter (where geom is null) as secoes_sem_geom from dim.secao_eleitoral;"
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select regra, severidade, count(*) from aux.qualidade_dado where entidade = 'secao_eleitoral' group by regra, severidade order by regra;"
+```
+
+Resultados obtidos:
+
+```text
+ secoes_csv | oficiais_tre | tre_expandida | agregadas | adicionais_csv | secoes_sem_geom
+------------+--------------+---------------+-----------+----------------+-----------------
+       7050 |         6961 |          7042 |        81 |              8 |               4
+```
+
+```text
+           regra           | severidade | count
+---------------------------+------------+-------
+ divergencia_aptos_tre_csv | aviso      |   106
+ secao_csv_sem_perfil      | aviso      |     8
+ secao_csv_sem_tre         | aviso      |     8
+```
+
+Observacoes:
+
+- A planilha TRE possui 6.961 linhas oficiais; 78 linhas trazem secoes agregadas entre parenteses.
+- Expandindo os parenteses, a planilha TRE representa 7.042 secoes, o mesmo total de secoes distintas do perfil do eleitorado.
+- O CSV `eleitorado_local_votacao_2026_DF.csv` possui 7.050 secoes: 6.969 principais e 81 agregadas.
+- As 81 agregadas referenciam secoes principais existentes e herdaram o local da secao principal.
+- As 8 secoes adicionais existem apenas no CSV oficial de eleitorado/local e foram preservadas com `is_adicional_csv = true`.
+
+## Etapa 11 - Dimensao candidato
+
+Aplicar DDL/populacao:
+
+```powershell
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -f /sql/02_dimensoes/06_dim_candidato.sql
+```
+
+Executar teste automatizado simples:
+
+```powershell
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -f /tests/sql/09_dim_candidato_test.sql
+```
+
+Resultado obtido:
+
+```text
+ check_name | expected_value | actual_value
+------------+----------------+--------------
+(0 rows)
+```
+
+Consultas manuais executadas:
+
+```powershell
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select ce.ds_cargo, count(*) as candidatos from dim.candidato c join dim.cargo_eleitoral ce on ce.cargo_id = c.cargo_id group by ce.ds_cargo order by candidatos desc, ce.ds_cargo;"
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select count(*) as candidatos, count(*) filter (where federacao_id is not null) as com_federacao, count(*) filter (where coligacao_id is not null) as com_coligacao, count(*) filter (where st_quilombola) as quilombolas, count(*) filter (where st_declarar_bens) as declararam_bens from dim.candidato; select regra, severidade, count(*) from aux.qualidade_dado where entidade = 'candidato' group by regra, severidade order by regra;"
+```
+
+Resultados obtidos:
+
+```text
+      ds_cargo      | candidatos
+--------------------+------------
+ DEPUTADO DISTRITAL |        431
+ DEPUTADO FEDERAL   |        168
+ 2o SUPLENTE        |         14
+ 1o SUPLENTE        |         13
+ SENADOR            |         13
+ GOVERNADOR         |         11
+ VICE-GOVERNADOR    |         11
+```
+
+```text
+ candidatos | com_federacao | com_coligacao | quilombolas | declararam_bens
+------------+---------------+---------------+-------------+-----------------
+        661 |           184 |           661 |           2 |             458
+```
+
+```text
+ regra | severidade | count
+-------+------------+-------
+(0 rows)
+```
+
+Observacoes:
+
+- CPF nao foi armazenado aberto; `dim.candidato.cpf_hash` usa `md5(nr_cpf_candidato)`.
+- `st_reeleicao = #NE` foi tratado como `null`.
+
+## Etapa 12 - Perfil do eleitor e fato eleitorado por perfil/secao
+
+Aplicar DDL/populacao:
+
+```powershell
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -f /sql/02_dimensoes/07_dim_perfil_eleitor.sql
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -f /sql/04_fatos/01_fato_eleitorado_perfil_secao.sql
+```
+
+Executar teste automatizado simples:
+
+```powershell
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -f /tests/sql/10_perfil_eleitor_test.sql
+```
+
+Resultado obtido:
+
+```text
+ check_name | expected_value | actual_value
+------------+----------------+--------------
+(0 rows)
+```
+
+Consultas manuais executadas:
+
+```powershell
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select count(*) as perfis from dim.perfil_eleitor; select count(*) as linhas_fato, sum(source_row_count) as linhas_origem, count(distinct secao_id) as secoes, sum(qt_eleitores) as eleitores, sum(qt_eleitores_biometria) as biometria, sum(qt_eleitores_deficiencia) as deficiencia, sum(qt_eleitores_nome_social) as nome_social from fato.eleitorado_perfil_secao; select regra, severidade, count(*) from aux.qualidade_dado where entidade = 'eleitorado_perfil_secao' group by regra, severidade order by regra;"
+```
+
+Resultados obtidos:
+
+```text
+ perfis
+--------
+   8468
+```
+
+```text
+ linhas_fato | linhas_origem | secoes | eleitores | biometria | deficiencia | nome_social
+-------------+---------------+--------+-----------+-----------+-------------+-------------
+     1219951 |       1233369 |   7042 |   2253132 |   2126894 |       24832 |         723
+```
+
+```text
+ regra | severidade | count
+-------+------------+-------
+(0 rows)
+```
+
+Observacoes:
+
+- A fato foi agregada por `eleicao_id + secao_id + perfil_id`, porque a fonte possui duplicidades naturais em `secao + perfil`.
+- `source_row_count` preserva a contagem das 1.233.369 linhas brutas de origem.
+
+## Etapa 13 - Estrutura de votacao de 2022
+
+Aplicar DDL:
+
+```powershell
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -f /sql/04_fatos/02_estrutura_votacao_2022.sql
+```
+
+Executar teste automatizado simples:
+
+```powershell
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -f /tests/sql/11_estrutura_votacao_2022_test.sql
+```
+
+Resultado obtido:
+
+```text
+ check_name | expected_value | actual_value
+------------+----------------+--------------
+(0 rows)
+```
+
+Consulta manual executada:
+
+```powershell
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select (select count(*) from stg.votacao_secao_2022_df) as stg_votacao, (select count(*) from dim.votavel) as votaveis, (select count(*) from fato.votacao_candidato_secao) as fato_votacao, (select count(*) from fato.apuracao_secao) as apuracao, (select count(*) from fato.vw_votacao_drilldown) as view_drilldown;"
+```
+
+Resultado obtido:
+
+```text
+ stg_votacao | votaveis | fato_votacao | apuracao | view_drilldown
+-------------+----------+--------------+----------+----------------
+           0 |        0 |            0 |        0 |              0
+```
+
+Observacao:
+
+- Nenhuma carga de `votacao_secao_2022_DF.csv` foi executada nesta etapa.
+
+## Etapa 14 - Carga piloto de votacao 2022
+
+Carregar amostra piloto da ZE 20:
+
+```powershell
+python scripts\load_votacao_piloto.py
+```
+
+Resultado obtido:
+
+```text
+stg.votacao_secao_2022_df: 44464 linhas carregadas para NR_ZONA=20
+```
+
+Aplicar populacao dimensional/fato da amostra:
+
+```powershell
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /sql/04_fatos/03_carga_piloto_votacao_2022.sql
+```
+
+Resultado obtido:
+
+```text
+INSERT 0 1
+INSERT 0 18
+INSERT 0 219
+INSERT 0 838
+INSERT 0 44464
+INSERT 0 876
+```
+
+Executar teste automatizado simples:
+
+```powershell
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /tests/sql/12_carga_piloto_votacao_2022_test.sql
+```
+
+Resultado obtido:
+
+```text
+ check_name | expected_value | actual_value
+------------+----------------+--------------
+(0 rows)
+```
+
+Consulta manual executada:
+
+```powershell
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select tipo_votavel, count(*) as linhas, sum(qt_votos) as votos from fato.votacao_candidato_secao vc join dim.eleicao e on e.eleicao_id = vc.eleicao_id where e.ano = 2022 and e.cd_eleicao = 546 group by tipo_votavel order by tipo_votavel;"
+```
+
+Resultado obtido:
+
+```text
+ tipo_votavel | linhas | votos
+--------------+--------+--------
+ branco       |    876 |  16142
+ legenda      |   2869 |   4604
+ nominal      |  39844 | 228436
+ nulo         |    875 |  11822
+```
+
+Validacao completa executada:
+
+```powershell
+Get-ChildItem tests\sql\*.sql | Sort-Object Name | ForEach-Object { docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f ("/tests/sql/" + $_.Name) }
+```
+
+Resultado: todos os testes SQL das Etapas 2 a 14 retornaram zero divergencias.
+
+Observacoes:
+
+- A carga piloto usa apenas `NR_ZONA = 20`.
+- `tests/sql/02_staging_large_test.sql`, `tests/sql/04_dim_eleicao_test.sql`, `tests/sql/07_dim_local_votacao_test.sql`, `tests/sql/08_dim_secao_eleitoral_test.sql` e `tests/sql/11_estrutura_votacao_2022_test.sql` foram ajustados para refletir o novo estado com piloto 2022 e manter as contagens oficiais de 2026 isoladas.
+- A carga completa de `votacao_secao_2022_DF.csv` nao ocorrera. O arquivo 2022 permanece apenas como amostra piloto/modelagem; a carga completa futura sera dos dados de votacao 2026 na mesma estrutura.

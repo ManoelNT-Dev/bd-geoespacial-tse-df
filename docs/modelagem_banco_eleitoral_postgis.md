@@ -1,121 +1,88 @@
-# Modelagem relacional para inteligencia eleitoral - PostgreSQL/PostGIS
+# Modelagem do banco eleitoral - PostgreSQL/PostGIS
 
-## 1. Fontes analisadas
+Este documento descreve a modelagem atual do banco eleitoral DF, incorporando os ajustes executados ate a Etapa 14. Ele deve servir como referencia para manutencao, expansao, validacao e construcao das views/indices das proximas etapas.
 
-Pasta `fontes`:
+## 1. Objetivo e escopo
 
-| Arquivo | Estrutura | Uso principal |
+O banco organiza dados eleitorais e geoespaciais em PostgreSQL/PostGIS para suportar consultas por:
+
+- UF, Regiao Administrativa, zona, local de votacao e secao;
+- eleicao, cargo, candidato/votavel, partido, federacao e coligacao;
+- perfil do eleitorado por secao, local e RA;
+- votacao por secao com drill-down ate RA/local/secao;
+- regras de qualidade e conciliacao entre fontes oficiais.
+
+Escopo ja implementado:
+
+- Staging das fontes disponiveis.
+- Dimensoes de UF, eleicao, RA, zona, cargo, partido, federacao, coligacao, local, secao, candidato e perfil do eleitor.
+- Fato de eleitorado por perfil/secao 2026.
+- Estrutura de fato de votacao e apuracao.
+- Carga piloto de votacao 2022 somente para a ZE 20, usada para validar a estrutura.
+
+Diretriz de votacao:
+
+- `votacao_secao_2022_DF.csv` nao sera carregado integralmente.
+- O arquivo 2022 permanece apenas como amostra piloto/modelagem.
+- A carga completa futura sera dos dados de votacao 2026, quando estiverem disponiveis na mesma estrutura.
+
+## 2. Schemas
+
+Schemas criados:
+
+- `stg`: staging bruto das fontes.
+- `dim`: dimensoes conformadas.
+- `fato`: tabelas fato e views analiticas.
+- `geo`: geometrias geoespaciais.
+- `aux`: qualidade, conciliacao e apoio.
+
+Extensoes:
+
+- `postgis`
+- `unaccent`
+
+## 3. Fontes
+
+| Fonte | Linhas / estrutura | Uso |
 |---|---:|---|
-| `consulta_cand_2026_DF.csv` | 661 linhas, 50 colunas, `;`, Latin-1 | candidaturas, partidos, cargos, federacoes e coligacoes |
-| `consulta_cand_complementar_2026_DF.csv` | 661 linhas, 49 colunas, `;`, Latin-1 | dados complementares da candidatura, julgamento, nacionalidade, quilombola, etnia indigena |
-| `eleitorado_local_votacao_2026_DF.csv` | 7.050 linhas, 41 colunas, `;`, Latin-1 | secoes por local, agregacao de secao, eleitorado por secao, coordenadas dos locais |
-| `perfil_eleitor_secao_2026_DF.csv` | 1.233.369 linhas, 30 colunas, `;`, Latin-1 | perfil agregado do eleitorado por secao e atributos demograficos |
-| `Locais_TRE_DF_2026.xlsx` | 614 linhas uteis, 11 colunas | locais de votacao com endereco, coordenadas, secoes, aptos e nao aptos |
-| `Locais_Secao_TRE_DF_2026.xlsx` | 614 linhas uteis, 11 colunas | indicadores de distribuicao de secoes por local |
-| `Locais_Secao_Agrupadas por local_TRE_DF_2026.xlsx` | 614 linhas uteis, 8 colunas | lista textual de secoes por local e totais |
-| `Secoes_TRE-DF_2026.xlsx` | 6.961 linhas uteis, 7 colunas | secoes TRE com aptos e suspensos |
-| `geo_ra_centroid_atualizado.json` | GeoJSON, 35 pontos, EPSG:4326 | centroides de RAs |
-| `shapefile_ras/regioes_administrativas.*` | 37 poligonos, SIRGAS 2000 / UTM 23S | limites oficiais das RAs |
-| `votacao_secao_2022_DF.csv` | 1.238.611 linhas, 26 colunas, `;`, Latin-1 | resultado de votacao de 2022 por cargo, votavel, local, zona e secao |
+| `consulta_cand_2026_DF.csv` | 661 linhas, 50 colunas, Latin-1, `;` | eleicao 2026, cargos, partidos, federacoes, coligacoes e candidatos |
+| `consulta_cand_complementar_2026_DF.csv` | 661 linhas, 49 colunas, Latin-1, `;` | dados complementares de candidato |
+| `eleitorado_local_votacao_2026_DF.csv` | 7.050 linhas, 41 colunas, Latin-1, `;` | locais, secoes, secoes agregadas, aptos e coordenadas |
+| `perfil_eleitor_secao_2026_DF.csv` | 1.233.369 linhas, Latin-1, `;` | perfil demografico agregado por secao |
+| `Locais_TRE_DF_2026.xlsx` | 614 linhas uteis + total | locais oficiais TRE 2026 |
+| `Locais_Secao_TRE_DF_2026.xlsx` | 614 linhas uteis + total | distribuicao de secoes por local |
+| `Locais_Secao_Agrupadas por local_TRE_DF_2026.xlsx` | 614 linhas uteis + total | secoes por local em formato textual |
+| `Secoes_TRE-DF_2026.xlsx` | 6.961 linhas uteis + total | secoes principais oficiais TRE |
+| `geo_ra_centroid_atualizado.json` | 35 pontos | centroides de RA em EPSG:4326 |
+| `shapefile_ras/regioes_administrativas.*` | 37 poligonos | limites de RA em SIRGAS 2000 / UTM 23S |
+| `votacao_secao_2022_DF.csv` | 1.238.611 linhas, 26 colunas | apenas piloto/modelagem da estrutura de votacao |
 
 Observacoes:
 
-- As planilhas XLSX possuem primeira linha de totais e ela deve ser ignorada na carga operacional.
-- O shapefile possui 37 RAs. O GeoJSON de centroides possui 35 RAs; faltam `RA-XXXVI` / `26 DE SETEMBRO` e `XXXVII` / `PONTE ALTA`. Os centroides dessas duas RAs devem ser calculados a partir dos poligonos do shapefile.
-- O arquivo `votacao_secao_2022_DF.csv` ja permite modelar a fato de votacao por secao. A importacao dos dados de 2022 fica fora deste primeiro momento, mas a estrutura deve estar preparada para ela.
-- Local de votacao e secao nao trazem RA explicitamente. A RA deve ser derivada por cruzamento espacial do ponto do local com o poligono da RA.
+- Planilhas TRE possuem linha de totais e ela e marcada com `is_total`.
+- CSVs TSE/TRE foram lidos em Latin-1.
+- Alguns arquivos possuem problemas de encoding em textos acentuados; a carga preserva o recebido e a normalizacao ocorre nas dimensoes.
+- RA e local/secao nao trazem relacionamento explicito; a RA e derivada por cruzamento espacial quando ha coordenada valida.
 
-## 2. Principios de modelagem
+## 4. Convencoes de modelagem
 
-- Usar `stg_*` para preservar dados brutos carregados das fontes.
-- Usar chaves substitutas (`bigserial`/`identity`) nas dimensoes e chaves naturais em `unique`.
-- Armazenar geometrias em PostGIS:
-  - `geom_utm geometry(MultiPolygon, 31983)` para limites de RA.
-  - `geom geometry(MultiPolygon, 4326)` para visualizacao web.
-  - `centroid_geom geometry(Point, 4326)` para centroides.
-  - `geom geometry(Point, 4326)` para locais de votacao.
-- Representar medidas agregaveis em tabelas de fato, nao em dimensoes.
-- Manter campos de codigo e descricao da fonte para auditoria e compatibilidade com TSE/TRE.
-- Tratar `#NULO`, `#NE`, `-1` e similares como valores de dominio conhecidos; converter para `NULL` apenas quando a semantica for ausencia real de dado.
+- Staging preserva colunas de origem como `text`, com `source_file`, `row_number` e `loaded_at`.
+- Dimensoes usam chaves substitutas (`identity`) e restricoes `unique` para chaves naturais.
+- Tabelas fato mantem chaves substitutas materializadas (`ra_id`, `local_id`, `secao_id`) para acelerar consultas.
+- Geometrias de RAs:
+  - `geom_utm geometry(MultiPolygon, 31983)`;
+  - `geom geometry(MultiPolygon, 4326)`;
+  - `centroid_geom geometry(Point, 4326)`.
+- Geometrias de locais/secoes:
+  - `geom geometry(Point, 4326)`.
+- Valores de dominio como `#NULO`, `#NE`, `-1` e `-3` sao tratados conforme semantica de cada fonte.
+- CPF de candidato nao e armazenado aberto; usa-se `cpf_hash`.
 
-## 3. Esquemas recomendados
+## 5. Staging
 
-```sql
-create schema if not exists stg;
-create schema if not exists dim;
-create schema if not exists fato;
-create schema if not exists geo;
-create schema if not exists aux;
+Tabelas de staging implementadas:
 
-create extension if not exists postgis;
-create extension if not exists unaccent;
-```
-
-## 4. Tabelas de staging
-
-As tabelas de staging devem refletir as colunas originais, preferencialmente todas como `text` no primeiro carregamento. Isso evita perda por formato regional de numero, codigos com zeros a esquerda e datas em formatos mistos.
-
-```sql
-create table stg.consulta_cand_2026_df (
-  source_file text not null,
-  loaded_at timestamptz not null default now(),
-  row_number bigint not null,
-  dt_geracao text,
-  hh_geracao text,
-  ano_eleicao text,
-  cd_tipo_eleicao text,
-  nm_tipo_eleicao text,
-  nr_turno text,
-  cd_eleicao text,
-  ds_eleicao text,
-  dt_eleicao text,
-  tp_abrangencia text,
-  sg_uf text,
-  sg_ue text,
-  nm_ue text,
-  cd_cargo text,
-  ds_cargo text,
-  sq_candidato text,
-  nr_candidato text,
-  nm_candidato text,
-  nm_urna_candidato text,
-  nm_social_candidato text,
-  nr_cpf_candidato text,
-  ds_email text,
-  cd_situacao_candidatura text,
-  ds_situacao_candidatura text,
-  tp_agremiacao text,
-  nr_partido text,
-  sg_partido text,
-  nm_partido text,
-  nr_federacao text,
-  nm_federacao text,
-  sg_federacao text,
-  ds_composicao_federacao text,
-  sq_coligacao text,
-  nm_coligacao text,
-  ds_composicao_coligacao text,
-  sg_uf_nascimento text,
-  dt_nascimento text,
-  nr_titulo_eleitoral_candidato text,
-  cd_genero text,
-  ds_genero text,
-  cd_grau_instrucao text,
-  ds_grau_instrucao text,
-  cd_estado_civil text,
-  ds_estado_civil text,
-  cd_cor_raca text,
-  ds_cor_raca text,
-  cd_ocupacao text,
-  ds_ocupacao text,
-  cd_sit_tot_turno text,
-  ds_sit_tot_turno text,
-  primary key (source_file, row_number)
-);
-```
-
-Criar tabelas equivalentes para:
-
+- `stg.consulta_cand_2026_df`
 - `stg.consulta_cand_complementar_2026_df`
 - `stg.eleitorado_local_votacao_2026_df`
 - `stg.perfil_eleitor_secao_2026_df`
@@ -127,638 +94,913 @@ Criar tabelas equivalentes para:
 - `stg.ra_shapefile`
 - `stg.votacao_secao_2022_df`
 
-Estrutura recomendada para staging da votacao de 2022:
+Estado atual relevante:
 
-```sql
-create table stg.votacao_secao_2022_df (
-  source_file text not null,
-  loaded_at timestamptz not null default now(),
-  row_number bigint not null,
-  dt_geracao text,
-  hh_geracao text,
-  ano_eleicao text,
-  cd_tipo_eleicao text,
-  nm_tipo_eleicao text,
-  nr_turno text,
-  cd_eleicao text,
-  ds_eleicao text,
-  dt_eleicao text,
-  tp_abrangencia text,
-  sg_uf text,
-  sg_ue text,
-  nm_ue text,
-  cd_municipio text,
-  nm_municipio text,
-  nr_zona text,
-  nr_secao text,
-  cd_cargo text,
-  ds_cargo text,
-  nr_votavel text,
-  nm_votavel text,
-  qt_votos text,
-  nr_local_votacao text,
-  sq_candidato text,
-  nm_local_votacao text,
-  ds_local_votacao_endereco text,
-  primary key (source_file, row_number)
-);
-```
+- `perfil_eleitor_secao_2026_df`: 1.233.369 linhas.
+- `votacao_secao_2022_df`: 44.464 linhas da ZE 20, amostra piloto.
+- A carga completa de 2022 nao deve ser executada.
 
-## 5. Dimensoes principais
+## 6. Dimensoes
 
-### 5.1 Eleicao
+### 6.1 `dim.uf`
 
-```sql
-create table dim.eleicao (
-  eleicao_id bigint generated always as identity primary key,
-  ano smallint not null,
-  turno smallint not null,
-  cd_eleicao integer,
-  ds_eleicao text not null,
-  cd_tipo_eleicao integer,
-  nm_tipo_eleicao text,
-  dt_eleicao date,
-  tp_abrangencia text,
-  unique (ano, turno, cd_eleicao)
-);
-```
+Unidade federativa.
 
-Fonte: `consulta_cand_2026_DF.csv`, `eleitorado_local_votacao_2026_DF.csv` e `votacao_secao_2022_DF.csv`.
+Campos principais:
 
-### 5.2 Unidade da federacao
+- `uf_id`
+- `sigla`
+- `nome`
+- `codigo_ibge`
 
-```sql
-create table dim.uf (
-  uf_id smallint generated always as identity primary key,
-  sigla char(2) not null unique,
-  nome text not null,
-  codigo_ibge integer
-);
-```
+Chave natural:
 
-Para a base atual: `DF`, `Distrito Federal`.
+- `sigla`
 
-### 5.3 Regiao administrativa
+Estado atual:
 
-```sql
-create table dim.regiao_administrativa (
-  ra_id bigint generated always as identity primary key,
-  uf_id smallint not null references dim.uf (uf_id),
-  ra_cira integer,
-  ra_codigo text not null,
-  ra_nome text not null,
-  ra_nome_normalizado text not null,
-  area_km2 numeric(14,8),
-  status text not null default 'ativa',
-  fonte_poligono text,
-  fonte_centroide text,
-  unique (uf_id, ra_codigo),
-  unique (uf_id, ra_nome_normalizado)
-);
+- 1 registro: `DF`, `Distrito Federal`, IBGE `53`.
 
-create table geo.ra_geometria (
-  ra_id bigint primary key references dim.regiao_administrativa (ra_id),
-  geom_utm geometry(MultiPolygon, 31983),
-  geom geometry(MultiPolygon, 4326) not null,
-  centroid_geom geometry(Point, 4326),
-  centroid_lon numeric(11,8),
-  centroid_lat numeric(11,8),
-  centroid_origem text not null default 'geojson'
-);
+### 6.2 `dim.eleicao`
 
-create index ra_geometria_geom_gix on geo.ra_geometria using gist (geom);
-create index ra_geometria_centroid_gix on geo.ra_geometria using gist (centroid_geom);
-```
+Eleicoes e turnos.
+
+Campos principais:
+
+- `eleicao_id`
+- `ano`
+- `turno`
+- `cd_eleicao`
+- `ds_eleicao`
+- `cd_tipo_eleicao`
+- `nm_tipo_eleicao`
+- `dt_eleicao`
+- `tp_abrangencia`
+
+Chave natural:
+
+- `ano + turno + cd_eleicao`
+
+Estado atual:
+
+- Eleicao 2026 criada a partir de `consulta_cand_2026_DF.csv`.
+- Eleicao 2022 criada pela carga piloto da ZE 20.
+
+Regra:
+
+- Para 2026, a fonte principal de descricao da eleicao e `consulta_cand_2026_DF.csv`, porque `eleitorado_local_votacao_2026_DF.csv` traz descricao resumida como `1o Turno`.
+
+### 6.3 `dim.regiao_administrativa` e `geo.ra_geometria`
+
+Representam as 37 RAs e suas geometrias.
+
+`dim.regiao_administrativa`:
+
+- `ra_id`
+- `uf_id`
+- `ra_cira`
+- `ra_codigo`
+- `ra_nome`
+- `ra_nome_normalizado`
+- `area_km2`
+- `status`
+- `fonte_poligono`
+- `fonte_centroide`
+
+Chaves naturais:
+
+- `uf_id + ra_codigo`
+- `uf_id + ra_nome_normalizado`
+
+`geo.ra_geometria`:
+
+- `ra_id`
+- `geom_utm`
+- `geom`
+- `centroid_geom`
+- `centroid_lon`
+- `centroid_lat`
+- `centroid_origem`
+
+Indices:
+
+- GiST em `geom`.
+- GiST em `centroid_geom`.
 
 Regras:
 
-- Carregar os 37 poligonos do shapefile.
-- Cruzar centroides por `ra_codigo` quando existirem no GeoJSON.
-- Para RAs sem centroide no GeoJSON, calcular o centroide com base no poligono do shapefile. Usar preferencialmente `st_pointonsurface(geom)` para garantir ponto dentro do poligono; caso seja necessario o centro geometrico, manter tambem `st_centroid(geom)` em coluna auxiliar ou view.
-- Registrar `centroid_origem = 'geojson'` para os 35 centroides importados e `centroid_origem = 'calculado_shapefile'` para `RA-XXXVI` / `26 DE SETEMBRO` e `XXXVII` / `PONTE ALTA`.
-- Corrigir a anomalia de codigo `XXXVII` para `RA-XXXVII` em camada de curadoria, preservando o valor original em staging.
+- 37 poligonos carregados do shapefile.
+- 34 centroides aproveitados diretamente do GeoJSON.
+- 3 centroides calculados por `st_pointonsurface`: `VARJAO`, `26 DE SETEMBRO` e `PONTE ALTA`.
+- O centroide GeoJSON de `VARJAO` foi descartado porque ficava fora do poligono.
+- A regra valida o ponto com `st_covers(geom, centroid_geom)`.
 
-Exemplo da regra de complemento:
+### 6.4 `dim.zona_eleitoral`
 
-```sql
-update geo.ra_geometria
-set centroid_geom = st_pointonsurface(geom),
-    centroid_lon = st_x(st_pointonsurface(geom)),
-    centroid_lat = st_y(st_pointonsurface(geom)),
-    centroid_origem = 'calculado_shapefile'
-where centroid_geom is null;
-```
+Zonas eleitorais do DF.
 
-### 5.4 Local de votacao
+Campos:
 
-```sql
-create table dim.local_votacao (
-  local_id bigint generated always as identity primary key,
-  eleicao_id bigint not null references dim.eleicao (eleicao_id),
-  uf_id smallint not null references dim.uf (uf_id),
-  ra_id bigint references dim.regiao_administrativa (ra_id),
-  nr_local_votacao integer not null,
-  nome text not null,
-  nome_normalizado text not null,
-  endereco text,
-  bairro text,
-  cep text,
-  telefone text,
-  latitude numeric(11,8),
-  longitude numeric(11,8),
-  geom geometry(Point, 4326),
-  cd_tipo_local integer,
-  ds_tipo_local text,
-  cd_situ_local_votacao integer,
-  ds_situ_local_votacao text,
-  status text not null default 'ativo',
-  source_priority text,
-  unique (eleicao_id, uf_id, nr_local_votacao)
-);
+- `zona_id`
+- `uf_id`
+- `nr_zona`
+- `cd_situ_zona`
+- `ds_situ_zona`
 
-create index local_votacao_geom_gix on dim.local_votacao using gist (geom);
-create index local_votacao_ra_idx on dim.local_votacao (ra_id);
-```
+Chave natural:
 
-Fontes:
+- `uf_id + nr_zona`
 
-- Preferir `eleitorado_local_votacao_2026_DF.csv` para status, tipo local e endereco operacional.
-- Usar `Locais_TRE_DF_2026.xlsx` para `QTDE_ELEITORES_NAO_APTOS` e como fonte de conferencia de coordenadas.
-- Para 2022, usar `votacao_secao_2022_DF.csv` para criar registros de local com `NR_LOCAL_VOTACAO`, `NM_LOCAL_VOTACAO` e `DS_LOCAL_VOTACAO_ENDERECO`; coordenadas e RA devem ser enriquecidas por cruzamento com bases georreferenciadas ou conciliacao com locais de outros anos.
+Estado atual:
 
-Regra espacial para RA:
+- 19 zonas.
 
-```sql
-update dim.local_votacao lv
-set ra_id = ra.ra_id
-from dim.regiao_administrativa ra
-join geo.ra_geometria rg on rg.ra_id = ra.ra_id
-where lv.ra_id is null
-  and lv.geom is not null
-  and st_contains(rg.geom, lv.geom);
-```
+### 6.5 `dim.cargo_eleitoral`
 
-### 5.5 Zona eleitoral
+Cargos eleitorais.
 
-```sql
-create table dim.zona_eleitoral (
-  zona_id bigint generated always as identity primary key,
-  uf_id smallint not null references dim.uf (uf_id),
-  nr_zona integer not null,
-  cd_situ_zona integer,
-  ds_situ_zona text,
-  unique (uf_id, nr_zona)
-);
-```
+Campos:
 
-### 5.6 Secao eleitoral
+- `cargo_id`
+- `cd_cargo`
+- `ds_cargo`
 
-```sql
-create table dim.secao_eleitoral (
-  secao_id bigint generated always as identity primary key,
-  eleicao_id bigint not null references dim.eleicao (eleicao_id),
-  uf_id smallint not null references dim.uf (uf_id),
-  ra_id bigint references dim.regiao_administrativa (ra_id),
-  zona_id bigint not null references dim.zona_eleitoral (zona_id),
-  local_id bigint not null references dim.local_votacao (local_id),
-  nr_zona integer not null,
-  nr_secao integer not null,
-  cd_tipo_secao_agregada integer,
-  ds_tipo_secao_agregada text,
-  nr_secao_principal integer,
-  secao_principal_id bigint references dim.secao_eleitoral (secao_id),
-  local_principal_id bigint references dim.local_votacao (local_id),
-  cd_situ_secao integer,
-  ds_situ_secao text,
-  cd_situ_secao_acessibilidade integer,
-  ds_situ_secao_acessibilidade text,
-  tem_acessibilidade boolean,
-  qt_eleitores_aptos integer,
-  qt_eleitores_nao_aptos integer,
-  qt_eleitores_suspensos integer,
-  latitude numeric(11,8),
-  longitude numeric(11,8),
-  geom geometry(Point, 4326),
-  unique (eleicao_id, uf_id, nr_zona, nr_secao)
-);
+Chave natural:
 
-create index secao_local_idx on dim.secao_eleitoral (local_id);
-create index secao_ra_idx on dim.secao_eleitoral (ra_id);
-create index secao_geom_gix on dim.secao_eleitoral using gist (geom);
-```
+- `cd_cargo`
 
-Regras:
+Estado atual:
 
-- A chave natural atual para secao e unica em `SG_UF + NR_ZONA + NR_SECAO`.
-- Coordenadas da secao herdam o ponto do local de votacao efetivo.
-- Para secao agregada, `local_principal_id` deve apontar para o local da secao principal quando identificado.
-- `qt_eleitores_aptos` vem de `QT_ELEITOR_SECAO` do CSV oficial ou de `APTOS` da planilha de secoes; divergencias devem ir para tabela de qualidade.
-- `qt_eleitores_nao_aptos` existe no nivel local em `Locais_TRE_DF_2026.xlsx`; se necessario por secao, manter nulo ou calcular somente com regra documentada.
+- 7 cargos de 2026.
+- A votacao piloto 2022 usa 4 cargos: governador, senador, deputado federal e deputado distrital.
 
-### 5.7 Partido politico
+### 6.6 `dim.partido_politico`
 
-```sql
-create table dim.partido_politico (
-  partido_id bigint generated always as identity primary key,
-  nr_partido integer not null,
-  sigla text not null,
-  nome text not null,
-  unique (nr_partido),
-  unique (sigla)
-);
-```
+Partidos.
 
-### 5.8 Cargo eleitoral
+Campos:
 
-```sql
-create table dim.cargo_eleitoral (
-  cargo_id smallint generated always as identity primary key,
-  cd_cargo integer not null unique,
-  ds_cargo text not null
-);
-```
+- `partido_id`
+- `nr_partido`
+- `sigla`
+- `nome`
 
-Na fonte atual existem 7 cargos: governador, vice-governador, senador, suplentes, deputado federal e deputado distrital.
+Chaves naturais:
 
-### 5.9 Federacao e coligacao
+- `nr_partido`
+- `sigla`
 
-```sql
-create table dim.federacao (
-  federacao_id bigint generated always as identity primary key,
-  nr_federacao integer,
-  sg_federacao text,
-  nm_federacao text,
-  ds_composicao_federacao text,
-  unique (nr_federacao, sg_federacao)
-);
+Estado atual:
 
-create table dim.coligacao (
-  coligacao_id bigint generated always as identity primary key,
-  eleicao_id bigint not null references dim.eleicao (eleicao_id),
-  sq_coligacao bigint,
-  nm_coligacao text,
-  ds_composicao_coligacao text,
-  unique (eleicao_id, sq_coligacao)
-);
-```
+- 29 partidos.
 
-### 5.10 Candidato
+### 6.7 `dim.federacao`
 
-```sql
-create table dim.candidato (
-  candidato_id bigint generated always as identity primary key,
-  eleicao_id bigint not null references dim.eleicao (eleicao_id),
-  uf_id smallint not null references dim.uf (uf_id),
-  cargo_id smallint not null references dim.cargo_eleitoral (cargo_id),
-  partido_id bigint references dim.partido_politico (partido_id),
-  federacao_id bigint references dim.federacao (federacao_id),
-  coligacao_id bigint references dim.coligacao (coligacao_id),
-  sq_candidato bigint not null,
-  nr_candidato integer not null,
-  nm_candidato text not null,
-  nm_urna_candidato text,
-  nm_social_candidato text,
-  cpf_hash text,
-  email_divulgavel text,
-  tp_agremiacao text,
-  cd_situacao_candidatura integer,
-  ds_situacao_candidatura text,
-  cd_detalhe_situacao_cand integer,
-  ds_detalhe_situacao_cand text,
-  cd_genero integer,
-  ds_genero text,
-  cd_grau_instrucao integer,
-  ds_grau_instrucao text,
-  cd_estado_civil integer,
-  ds_estado_civil text,
-  cd_cor_raca text,
-  ds_cor_raca text,
-  cd_ocupacao integer,
-  ds_ocupacao text,
-  sg_uf_nascimento char(2),
-  cd_municipio_nascimento integer,
-  nm_municipio_nascimento text,
-  dt_nascimento date,
-  cd_nacionalidade integer,
-  ds_nacionalidade text,
-  nr_idade_data_posse integer,
-  st_quilombola boolean,
-  cd_etnia_indigena integer,
-  ds_etnia_indigena text,
-  st_reeleicao boolean,
-  st_declarar_bens boolean,
-  vr_despesa_max_campanha numeric(16,2),
-  cd_situacao_julgamento integer,
-  ds_situacao_julgamento text,
-  cd_situacao_candidato_urna integer,
-  ds_situacao_candidato_urna text,
-  cd_sit_tot_turno integer,
-  ds_sit_tot_turno text,
-  unique (eleicao_id, sq_candidato)
-);
+Federacoes partidarias.
 
-create index candidato_partido_idx on dim.candidato (partido_id);
-create index candidato_cargo_idx on dim.candidato (cargo_id);
-```
+Campos:
 
-Regras:
+- `federacao_id`
+- `nr_federacao`
+- `sg_federacao`
+- `nm_federacao`
+- `ds_composicao_federacao`
 
-- `consulta_cand_2026_DF.csv` e `consulta_cand_complementar_2026_DF.csv` se unem por `SQ_CANDIDATO`.
-- Evitar armazenar CPF aberto. Se for indispensavel, usar coluna protegida e perfil de acesso separado; para inteligencia eleitoral, `cpf_hash` normalmente basta.
+Chave natural:
 
-## 6. Perfil do eleitor
+- `nr_federacao + sg_federacao`
 
-A solicitacao chama "perfil do eleitor" de dimensao, mas os campos `QT_ELEITORES`, `QT_ELEITORES_BIOMETRIA`, `QT_ELEITORES_DEFICIENCIA` e `QT_ELEITORES_NOME_SOCIAL` sao medidas agregaveis. A modelagem recomendada separa uma dimensao de atributos de perfil e uma fato de contagem por secao.
+Regra:
 
-```sql
-create table dim.perfil_eleitor (
-  perfil_id bigint generated always as identity primary key,
-  cd_genero integer,
-  ds_genero text,
-  cd_estado_civil integer,
-  ds_estado_civil text,
-  cd_faixa_etaria integer,
-  ds_faixa_etaria text,
-  cd_grau_escolaridade integer,
-  ds_grau_escolaridade text,
-  cd_raca_cor integer,
-  ds_raca_cor text,
-  cd_identidade_genero integer,
-  ds_identidade_genero text,
-  cd_quilombola integer,
-  ds_quilombola text,
-  cd_interprete_libras integer,
-  ds_interprete_libras text,
-  unique (
-    cd_genero, cd_estado_civil, cd_faixa_etaria, cd_grau_escolaridade,
-    cd_raca_cor, cd_identidade_genero, cd_quilombola, cd_interprete_libras
-  )
-);
+- `NR_FEDERACAO = -1 / #NULO` representa ausencia de federacao e nao e inserido.
 
-create table fato.eleitorado_perfil_secao (
-  eleicao_id bigint not null references dim.eleicao (eleicao_id),
-  uf_id smallint not null references dim.uf (uf_id),
-  ra_id bigint references dim.regiao_administrativa (ra_id),
-  local_id bigint not null references dim.local_votacao (local_id),
-  secao_id bigint not null references dim.secao_eleitoral (secao_id),
-  perfil_id bigint not null references dim.perfil_eleitor (perfil_id),
-  qt_eleitores integer not null,
-  qt_eleitores_biometria integer not null,
-  qt_eleitores_deficiencia integer not null,
-  qt_eleitores_nome_social integer not null,
-  primary key (eleicao_id, secao_id, perfil_id)
-);
+Estado atual:
 
-create index eleitorado_perfil_ra_idx on fato.eleitorado_perfil_secao (ra_id);
-create index eleitorado_perfil_local_idx on fato.eleitorado_perfil_secao (local_id);
-create index eleitorado_perfil_perfil_idx on fato.eleitorado_perfil_secao (perfil_id);
-```
+- 5 federacoes reais.
 
-Essa fato permite consultas como:
+### 6.8 `dim.coligacao`
 
-- eleitorado feminino por RA;
-- perfil etario por zona;
-- eleitores com biometria por local;
-- eleitores aptos com deficiencia ou mobilidade reduzida por secao;
-- solicitacao de nome social por local/RA/secao.
+Coligacoes por eleicao.
 
-## 7. Fatos eleitorais para votacao
+Campos:
 
-O arquivo `votacao_secao_2022_DF.csv` possui a granularidade necessaria para o drill-down de votacao:
+- `coligacao_id`
+- `eleicao_id`
+- `sq_coligacao`
+- `nm_coligacao`
+- `ds_composicao_coligacao`
 
-`UF -> Regiao Administrativa -> Local de Votacao -> Secao Eleitoral -> Cargo -> Votavel`.
+Chave natural:
 
-Estrutura analisada:
+- `eleicao_id + sq_coligacao`
 
-- 1.238.611 linhas.
-- Eleicao unica na amostra: `ANO_ELEICAO = 2022`, `CD_ELEICAO = 546`, `NR_TURNO = 1`, `SG_UF = DF`.
-- 6.748 secoes distintas por `SG_UF + NR_ZONA + NR_SECAO`.
-- 4 cargos: governador, senador, deputado federal e deputado distrital.
-- A chave natural da linha e unica em `SG_UF + NR_ZONA + NR_SECAO + NR_LOCAL_VOTACAO + CD_CARGO + NR_VOTAVEL + SQ_CANDIDATO`.
-- `SQ_CANDIDATO = -1` representa votaveis especiais `95 VOTO BRANCO` e `96 VOTO NULO`.
-- `SQ_CANDIDATO = -3` representa voto de legenda para cargos proporcionais; nesse caso `NR_VOTAVEL` e o numero do partido.
+Estado atual:
 
-Como a importacao dos dados de 2022 nao sera feita neste primeiro momento, a tabela abaixo fica preparada para receber a carga posterior sem perder a semantica da fonte.
+- 62 coligacoes.
+- `PARTIDO ISOLADO` permanece na dimensao quando ha `SQ_COLIGACAO` real.
 
-### 7.1 Dimensao de votavel
+### 6.9 `dim.local_votacao`
 
-Nem toda linha da votacao aponta para um candidato. Ha voto nominal, voto de legenda, voto branco e voto nulo. Por isso, a modelagem deve ter uma dimensao propria de votavel.
+Locais fisicos de votacao por eleicao, zona e numero do local.
 
-```sql
-create table dim.votavel (
-  votavel_id bigint generated always as identity primary key,
-  eleicao_id bigint not null references dim.eleicao (eleicao_id),
-  cargo_id smallint not null references dim.cargo_eleitoral (cargo_id),
-  partido_id bigint references dim.partido_politico (partido_id),
-  candidato_id bigint references dim.candidato (candidato_id),
-  nr_votavel integer not null,
-  nm_votavel text not null,
-  sq_candidato bigint,
-  tipo_votavel text not null check (
-    tipo_votavel in ('nominal', 'legenda', 'branco', 'nulo')
-  )
-);
-```
+Campos principais:
+
+- `local_id`
+- `eleicao_id`
+- `uf_id`
+- `zona_id`
+- `ra_id`
+- `nr_zona`
+- `nr_local_votacao`
+- `nome`
+- `nome_normalizado`
+- `endereco`
+- `bairro`
+- `cep`
+- `telefone`
+- `latitude`
+- `longitude`
+- `geom`
+- `cd_tipo_local`
+- `ds_tipo_local`
+- `cd_situ_local_votacao`
+- `ds_situ_local_votacao`
+- `status`
+- `is_principal`
+- `fonte_tre_confirmada`
+- `source_priority`
+
+Chave natural:
+
+- `eleicao_id + uf_id + nr_zona + nr_local_votacao`
+
+Regra central:
+
+- `NR_LOCAL_VOTACAO` nao identifica sozinho um local fisico no DF.
+- O mesmo numero de local aparece em mais de uma zona; por isso a chave precisa incluir `nr_zona`.
+- Para consistencia oficial de 2026, considerar principais os 614 pares `zona + local` coincidentes com a planilha oficial do TRE.
+- Pares adicionais do CSV oficial sao preservados com `is_principal = false`, `fonte_tre_confirmada = false` e `source_priority = csv_eleitorado_local_votacao_2026_adicional`.
+
+Estado atual 2026:
+
+- 622 pares `zona + local` vindos do CSV.
+- 614 principais confirmados pelo TRE.
+- 8 adicionais para checagem futura.
+- 108 numeros de local distintos.
+- 619 locais com `geom` e `ra_id`.
+- 3 locais sem geometria por coordenada sentinela `-1/-1`.
+- 0 locais com geometria valida sem RA.
+
+Estado atual piloto 2022:
+
+- 18 locais da ZE 20 criados pela amostra de votacao.
+- Sem geometria/RA no piloto quando nao ha coordenada na fonte de votacao.
+
+Indices:
+
+- GiST em `geom`.
+- B-tree em `ra_id`.
+- B-tree em `zona_id`.
+- B-tree em `is_principal`.
+
+### 6.10 `dim.secao_eleitoral`
+
+Secoes eleitorais por eleicao, zona e numero da secao.
+
+Campos principais:
+
+- `secao_id`
+- `eleicao_id`
+- `uf_id`
+- `ra_id`
+- `zona_id`
+- `local_id`
+- `nr_zona`
+- `nr_secao`
+- `cd_tipo_secao_agregada`
+- `ds_tipo_secao_agregada`
+- `nr_secao_principal`
+- `secao_principal_id`
+- `local_principal_id`
+- `cd_situ_secao`
+- `ds_situ_secao`
+- `cd_situ_secao_acessibilidade`
+- `ds_situ_secao_acessibilidade`
+- `tem_acessibilidade`
+- `qt_eleitores_aptos`
+- `qt_eleitores_aptos_tre`
+- `qt_eleitores_suspensos_tre`
+- `latitude`
+- `longitude`
+- `geom`
+- `is_secao_principal_tre`
+- `fonte_tre_confirmada`
+- `is_adicional_csv`
+- `source_file`
+- `loaded_at`
+
+Chave natural:
+
+- `eleicao_id + uf_id + nr_zona + nr_secao`
+
+Regras centrais 2026:
+
+- O numero oficial do TRE e 6.961 secoes principais.
+- A planilha TRE possui 78 linhas com secoes agregadas entre parenteses.
+- Expandindo as agregadas da planilha, o TRE representa 7.042 secoes.
+- O CSV `eleitorado_local_votacao_2026_DF.csv` possui 7.050 secoes.
+- 81 secoes do CSV tem `DS_TIPO_SECAO_AGREGADA = Agregada`.
+- Quando a secao e agregada, o `local_id` efetivo deve ser o local da secao principal indicada em `NR_SECAO_PRINCIPAL`.
+- Toda secao agregada deve apontar para `secao_principal_id`.
+- As 8 secoes que existem apenas no CSV sao preservadas com `is_adicional_csv = true`.
+
+Estado atual 2026:
+
+- 7.050 secoes carregadas do CSV.
+- 6.961 marcadas como `is_secao_principal_tre = true`.
+- 7.042 marcadas como `fonte_tre_confirmada = true`.
+- 81 agregadas vinculadas a secao principal.
+- 8 adicionais para checagem futura.
+- 4 secoes sem geometria, herdadas de locais sem coordenada.
+- 106 divergencias de aptos entre TRE e soma CSV de principal/agregadas registradas como aviso.
+
+Estado atual piloto 2022:
+
+- 219 secoes da ZE 20 criadas pela amostra.
+
+Indices:
+
+- B-tree em `local_id`.
+- B-tree em `ra_id`.
+- GiST em `geom`.
+- B-tree em `is_secao_principal_tre`.
+- B-tree em `fonte_tre_confirmada`.
+
+### 6.11 `dim.candidato`
+
+Candidatos de 2026.
+
+Campos principais:
+
+- chaves: `candidato_id`, `eleicao_id`, `uf_id`, `cargo_id`, `partido_id`, `federacao_id`, `coligacao_id`;
+- identificadores: `sq_candidato`, `nr_candidato`;
+- nomes: `nm_candidato`, `nm_urna_candidato`, `nm_social_candidato`;
+- privacidade: `cpf_hash`, `email_divulgavel`;
+- candidatura: situacao, julgamento, urna, totalizacao;
+- perfil: genero, instrucao, estado civil, cor/raca, ocupacao, nascimento, nacionalidade, idade, quilombola, etnia indigena;
+- campanha: reeleicao, declaracao de bens, despesa maxima;
+- linhagem: `source_file`, `source_file_complementar`, `loaded_at`.
+
+Chave natural:
+
+- `eleicao_id + sq_candidato`
 
 Regras:
 
-- `tipo_votavel = 'nominal'` quando `SQ_CANDIDATO` e um identificador real de candidato.
-- `tipo_votavel = 'legenda'` quando `SQ_CANDIDATO = -3`; vincular `partido_id` por `NR_VOTAVEL = NR_PARTIDO`.
-- `tipo_votavel = 'branco'` quando `NR_VOTAVEL = 95` e `SQ_CANDIDATO = -1`.
-- `tipo_votavel = 'nulo'` quando `NR_VOTAVEL = 96` e `SQ_CANDIDATO = -1`.
-- `candidato_id` deve ser nulo para legenda, branco e nulo.
+- `consulta_cand_2026_DF.csv` e `consulta_cand_complementar_2026_DF.csv` sao unidas por `SQ_CANDIDATO`.
+- CPF aberto nao e armazenado; `cpf_hash = md5(nr_cpf_candidato)`.
+- `st_reeleicao = #NE` vira `null`.
+- Campos `S/N` viram booleanos.
 
-Em PostgreSQL, a restricao `unique` com `coalesce` deve ser implementada como indice unico:
+Estado atual:
 
-```sql
-create unique index votavel_uk
-on dim.votavel (
-  eleicao_id,
-  cargo_id,
-  nr_votavel,
-  (coalesce(sq_candidato, -999999999999))
-);
+- 661 candidatos.
+- Todos possuem cargo, partido, coligacao e hash de CPF.
+- 184 possuem federacao.
+- 2 quilombolas.
+- 458 declararam bens.
+
+Indices:
+
+- `partido_id`
+- `cargo_id`
+- `federacao_id`
+- `coligacao_id`
+
+### 6.12 `dim.perfil_eleitor`
+
+Combinacoes demograficas do perfil do eleitorado.
+
+Campos:
+
+- `perfil_id`
+- `perfil_hash`
+- genero;
+- estado civil;
+- faixa etaria;
+- grau de escolaridade;
+- raca/cor;
+- identidade de genero;
+- quilombola;
+- interprete de Libras.
+
+Chave natural:
+
+- `perfil_hash`, calculado por MD5 da combinacao dos codigos demograficos.
+
+Estado atual:
+
+- 8.468 perfis.
+
+Indices:
+
+- genero;
+- faixa etaria;
+- escolaridade;
+- raca/cor.
+
+## 7. Fatos
+
+### 7.1 `fato.eleitorado_perfil_secao`
+
+Fato de eleitorado 2026 por secao e perfil demografico.
+
+Grao:
+
+- `eleicao_id + secao_id + perfil_id`
+
+Campos principais:
+
+- `eleicao_id`
+- `uf_id`
+- `ra_id`
+- `local_id`
+- `secao_id`
+- `perfil_id`
+- `qt_eleitores`
+- `qt_eleitores_biometria`
+- `qt_eleitores_deficiencia`
+- `qt_eleitores_nome_social`
+- `source_row_count`
+- `source_file`
+- `loaded_at`
+
+Regra:
+
+- A fonte possui duplicidades naturais por `secao + perfil`.
+- A fato agrega por soma das medidas e preserva a quantidade de linhas brutas em `source_row_count`.
+
+Estado atual:
+
+- 1.219.951 linhas analiticas agregadas.
+- `source_row_count` soma 1.233.369 linhas brutas.
+- 7.042 secoes cobertas.
+- `qt_eleitores`: 2.253.132.
+- biometria: 2.126.894.
+- deficiencia: 24.832.
+- nome social: 723.
+- Sem perfil sem secao.
+- Sem divergencia entre soma de perfil e `QT_ELEITOR_SECAO`.
+
+Indices:
+
+- `ra_id`
+- `local_id`
+- `secao_id`
+- `perfil_id`
+
+### 7.2 `dim.votavel`
+
+Dimensao de candidatos/votos especiais usada pela fato de votacao.
+
+Por que existe:
+
+- Nem toda linha de votacao representa candidato nominal.
+- Ha votos nominais, votos de legenda, votos brancos e votos nulos.
+
+Campos:
+
+- `votavel_id`
+- `eleicao_id`
+- `cargo_id`
+- `partido_id`
+- `candidato_id`
+- `nr_votavel`
+- `nm_votavel`
+- `sq_candidato`
+- `tipo_votavel`
+- `source_file`
+- `loaded_at`
+
+Tipos:
+
+- `nominal`
+- `legenda`
+- `branco`
+- `nulo`
+
+Chave unica:
+
+- indice unico por `eleicao_id + cargo_id + nr_votavel + coalesce(sq_candidato, -999999999999)`.
+
+Regras:
+
+- `SQ_CANDIDATO = -3`: voto de legenda; `NR_VOTAVEL` e numero do partido.
+- `SQ_CANDIDATO = -1` e `NR_VOTAVEL = 95`: branco.
+- `SQ_CANDIDATO = -1` e `NR_VOTAVEL = 96`: nulo.
+- Demais linhas: nominal.
+- Para o piloto 2022, `candidato_id` fica nulo porque a dimensao de candidatos carregada e de 2026.
+
+Estado atual piloto 2022:
+
+- 838 votaveis.
+- Tipos presentes: nominal, legenda, branco e nulo.
+
+### 7.3 `fato.votacao_candidato_secao`
+
+Fato de votacao por secao, cargo e votavel.
+
+Grao:
+
+- `eleicao_id + secao_id + cargo_id + votavel_id`
+
+Campos principais:
+
+- `eleicao_id`
+- `uf_id`
+- `ra_id`
+- `local_id`
+- `secao_id`
+- `cargo_id`
+- `votavel_id`
+- `candidato_id`
+- `partido_id`
+- `nr_zona`
+- `nr_secao`
+- `nr_local_votacao`
+- `nr_votavel`
+- `sq_candidato`
+- `nm_votavel`
+- `tipo_votavel`
+- `qt_votos`
+- `source_file`
+- `loaded_at`
+
+Estado atual piloto 2022:
+
+- 44.464 linhas para ZE 20.
+- Soma por tipo:
+  - `nominal`: 39.844 linhas, 228.436 votos.
+  - `legenda`: 2.869 linhas, 4.604 votos.
+  - `branco`: 876 linhas, 16.142 votos.
+  - `nulo`: 875 linhas, 11.822 votos.
+
+Indices atuais:
+
+- `ra_id + cargo_id`
+- `uf_id + ra_id + local_id + secao_id`
+- `local_id + candidato_id`
+- `partido_id`
+- `votavel_id`
+
+Indices recomendados para Etapa 16:
+
+- `eleicao_id + cargo_id + votavel_id`
+- `eleicao_id + cargo_id + ra_id`
+- `eleicao_id + cargo_id + local_id`
+- `eleicao_id + cargo_id + secao_id`
+- `eleicao_id + cargo_id + tipo_votavel`
+
+### 7.4 `fato.apuracao_secao`
+
+Fato agregada por secao e cargo.
+
+Grao:
+
+- `eleicao_id + secao_id + cargo_id`
+
+Campos:
+
+- `eleicao_id`
+- `uf_id`
+- `ra_id`
+- `local_id`
+- `secao_id`
+- `cargo_id`
+- `qt_aptos`
+- `qt_comparecimento`
+- `qt_abstencoes`
+- `qt_votos_nominais`
+- `qt_votos_legenda`
+- `qt_votos_brancos`
+- `qt_votos_nulos`
+- `source_file`
+- `loaded_at`
+
+Estado atual piloto 2022:
+
+- 876 linhas.
+- As medidas de votos sao derivadas de `fato.votacao_candidato_secao`.
+- `qt_aptos`, `qt_comparecimento` e `qt_abstencoes` ainda ficam nulos porque nao foram carregados de uma fonte especifica de apuracao/boletim.
+
+## 8. Views atuais e planejadas
+
+### 8.1 View atual
+
+`fato.vw_votacao_drilldown`
+
+Uso:
+
+- Expor a votacao por secao com dimensoes de eleicao, UF, RA, local, secao, cargo, partido e candidato/votavel.
+
+Campos principais:
+
+- ano, turno, `cd_eleicao`, `ds_eleicao`;
+- UF;
+- RA;
+- local de votacao;
+- zona e secao;
+- cargo;
+- tipo de votavel, numero e nome do votavel;
+- partido;
+- candidato nominal quando existir;
+- `qt_votos`.
+
+### 8.2 Views planejadas para Etapa 16
+
+A especificacao `fontes/especificacao-tecnica-painel-eleitoral.md` indica consumo futuro por mapas, KPIs, rankings/Pareto, top2, margem, heatmap, barras empilhadas, tabelas analiticas e drill-down.
+
+Views recomendadas:
+
+- `fato.vw_votacao_resultado_nivel`
+- `fato.vw_votacao_ra_candidato`
+- `fato.vw_votacao_local_candidato`
+- `fato.vw_votacao_secao_candidato`
+- `fato.vw_votacao_rank_pareto`
+- `fato.vw_votacao_top2_margem`
+- `fato.vw_votacao_heatmap_top5`
+- `fato.vw_votacao_stacked_ra_top5`
+- `fato.vw_vitorias_zeros_votavel`
+- `fato.vw_eleitorado_perfil_ra`
+- `fato.vw_eleitorado_perfil_local`
+- `fato.vw_eleitorado_perfil_secao`
+- `fato.vw_eleitorado_dominante_ra`
+- `geo.vw_ra_mapa`
+- `geo.vw_local_votacao_mapa`
+
+Contratos minimos:
+
+- Views de resultado devem expor eleicao, cargo, nivel, RA, local, secao, votavel, partido, votos, votos validos do nivel, percentual no nivel e percentual no total.
+- Views de ranking devem expor `ranking`, `cum_pct` e `dentro_pareto80`.
+- Views de top2/margem devem expor lider, segundo colocado, margem em votos, margem percentual e classificacao de competitividade.
+- Views geograficas devem expor latitude, longitude, geometria, intensidade e totais.
+- Views de eleitorado devem expor dimensao demografica, codigo, descricao, quantidade, percentual e categoria dominante quando aplicavel.
+
+## 9. Auxiliares e qualidade
+
+### 9.1 `aux.qualidade_dado`
+
+Tabela generica de ocorrencias de qualidade.
+
+Campos:
+
+- `qualidade_id`
+- `entidade`
+- `chave_natural`
+- `severidade`
+- `regra`
+- `detalhe`
+- `source_file`
+- `detected_at`
+
+Regras implementadas:
+
+`local_votacao`:
+
+- `local_sem_coordenada`
+- `local_sem_ra`
+- `local_csv_sem_tre`
+- `nr_local_votacao_reutilizado_em_zonas`
+
+`secao_eleitoral`:
+
+- `secao_csv_sem_tre`
+- `secao_csv_sem_perfil`
+- `secao_sem_local`
+- `secao_sem_ra`
+- `secao_agregada_sem_principal`
+- `secao_agregada_local_diferente_principal`
+- `divergencia_aptos_tre_csv`
+
+`candidato`:
+
+- `candidato_sem_complementar`
+- `candidato_sem_cargo`
+- `candidato_sem_partido`
+- `candidato_sem_federacao`
+- `candidato_sem_coligacao`
+
+`eleitorado_perfil_secao`:
+
+- `perfil_sem_secao`
+- `perfil_secao_diverge_aptos_csv`
+
+Estado atual de qualidade mais relevante:
+
+- 8 locais CSV sem TRE.
+- 3 locais sem coordenada.
+- 90 numeros de local reutilizados em mais de uma zona.
+- 8 secoes CSV sem TRE.
+- 8 secoes CSV sem perfil.
+- 106 divergencias de aptos TRE x CSV.
+- 0 erros de candidato.
+- 0 erros de perfil sem secao.
+
+### 9.2 `aux.local_votacao_alias`
+
+Preserva nomes, enderecos e coordenadas originais por fonte para conciliacao de locais.
+
+Campos:
+
+- `alias_id`
+- `local_id`
+- `nr_zona`
+- `nr_local_votacao`
+- `nome_original`
+- `endereco_original`
+- `bairro_original`
+- `latitude_original`
+- `longitude_original`
+- `source_file`
+
+Estado atual:
+
+- 1.236 aliases de fonte:
+  - 622 do CSV oficial;
+  - 614 da planilha TRE.
+
+### 9.3 `aux.ra_alias`
+
+Prevista para conciliacao de codigos/nomes de RA entre fontes. Ainda nao foi populada como parte das etapas executadas.
+
+## 10. Relacionamentos principais
+
+Fluxo geografico:
+
+```text
+dim.uf
+  -> dim.regiao_administrativa
+  -> geo.ra_geometria
+  -> dim.local_votacao
+  -> dim.secao_eleitoral
 ```
 
-### 7.2 Fato de votacao por secao
+Fluxo eleitoral:
 
-```sql
-create table fato.votacao_candidato_secao (
-  eleicao_id bigint not null references dim.eleicao (eleicao_id),
-  uf_id smallint not null references dim.uf (uf_id),
-  ra_id bigint references dim.regiao_administrativa (ra_id),
-  local_id bigint not null references dim.local_votacao (local_id),
-  secao_id bigint not null references dim.secao_eleitoral (secao_id),
-  cargo_id smallint not null references dim.cargo_eleitoral (cargo_id),
-  votavel_id bigint not null references dim.votavel (votavel_id),
-  candidato_id bigint references dim.candidato (candidato_id),
-  partido_id bigint references dim.partido_politico (partido_id),
-  nr_zona integer not null,
-  nr_secao integer not null,
-  nr_local_votacao integer not null,
-  nr_votavel integer not null,
-  sq_candidato bigint,
-  nm_votavel text not null,
-  tipo_votavel text not null check (
-    tipo_votavel in ('nominal', 'legenda', 'branco', 'nulo')
-  ),
-  qt_votos integer not null,
-  source_file text,
-  loaded_at timestamptz not null default now(),
-  primary key (eleicao_id, secao_id, cargo_id, votavel_id)
-);
-
-create index votacao_ra_cargo_idx on fato.votacao_candidato_secao (ra_id, cargo_id);
-create index votacao_uf_ra_local_secao_idx on fato.votacao_candidato_secao (uf_id, ra_id, local_id, secao_id);
-create index votacao_local_candidato_idx on fato.votacao_candidato_secao (local_id, candidato_id);
-create index votacao_partido_idx on fato.votacao_candidato_secao (partido_id);
-create index votacao_votavel_idx on fato.votacao_candidato_secao (votavel_id);
+```text
+dim.eleicao
+  -> dim.cargo_eleitoral
+  -> dim.partido_politico / dim.federacao / dim.coligacao
+  -> dim.candidato
+  -> dim.votavel
+  -> fato.votacao_candidato_secao
+  -> fato.apuracao_secao
 ```
 
-View recomendada para consumo do sistema:
+Fluxo de eleitorado:
 
-```sql
-create or replace view fato.vw_votacao_drilldown as
-select
-  e.ano,
-  e.turno,
-  uf.sigla as uf,
-  ra.ra_codigo,
-  ra.ra_nome,
-  lv.nr_local_votacao,
-  lv.nome as local_votacao,
-  se.nr_zona,
-  se.nr_secao,
-  ce.ds_cargo,
-  vc.tipo_votavel,
-  vc.nr_votavel,
-  vc.nm_votavel,
-  pp.sigla as partido,
-  c.nm_urna_candidato,
-  vc.qt_votos
-from fato.votacao_candidato_secao vc
-join dim.eleicao e on e.eleicao_id = vc.eleicao_id
-join dim.uf uf on uf.uf_id = vc.uf_id
-left join dim.regiao_administrativa ra on ra.ra_id = vc.ra_id
-join dim.local_votacao lv on lv.local_id = vc.local_id
-join dim.secao_eleitoral se on se.secao_id = vc.secao_id
-join dim.cargo_eleitoral ce on ce.cargo_id = vc.cargo_id
-left join dim.partido_politico pp on pp.partido_id = vc.partido_id
-left join dim.candidato c on c.candidato_id = vc.candidato_id;
+```text
+dim.eleicao
+  -> dim.secao_eleitoral
+  -> dim.perfil_eleitor
+  -> fato.eleitorado_perfil_secao
 ```
 
-Observacoes para drill-down:
+## 11. Fluxo de carga atual
 
-- `uf_id`, `ra_id`, `local_id` e `secao_id` ficam materializados na fato para acelerar consultas geoespaciais e agregacoes interativas.
-- `ra_id` deve ser herdado do local de votacao. O local, por sua vez, deve ter RA derivada por `st_contains`/`st_intersects` quando houver coordenada.
-- Para dados de 2022 sem coordenada propria no CSV de votacao, criar o local de votacao a partir de `NR_LOCAL_VOTACAO`, `NM_LOCAL_VOTACAO` e `DS_LOCAL_VOTACAO_ENDERECO`, e enriquecer coordenadas por fontes complementares quando disponiveis.
-- Se o local de 2022 coincidir com local existente em 2026 por `UF + NR_LOCAL_VOTACAO` e nome/endereco compativeis, as coordenadas podem ser reaproveitadas com uma regra de confianca registrada em `aux.qualidade_dado` ou em tabela de linhagem.
-- A tabela preserva `nr_zona`, `nr_secao`, `nr_local_votacao`, `nr_votavel`, `sq_candidato`, `nm_votavel` e `tipo_votavel` para auditoria e para consultas mesmo quando alguma dimensao ainda nao estiver perfeitamente conciliada.
+Ordem implementada:
 
-### 7.3 Fato agregada de apuracao por secao
+1. Criar schemas/extensoes.
+2. Criar staging pequeno/medio.
+3. Carregar CSVs pequenos, XLSX, GeoJSON e shapefile.
+4. Criar staging grande.
+5. Carregar `perfil_eleitor_secao_2026_DF.csv`.
+6. Criar `dim.uf`.
+7. Criar `dim.eleicao` 2026.
+8. Criar RAs e geometrias.
+9. Criar zonas, cargos, partidos, federacoes e coligacoes.
+10. Criar locais de votacao 2026.
+11. Criar secoes eleitorais 2026.
+12. Criar candidatos 2026.
+13. Criar perfis de eleitor.
+14. Criar fato de eleitorado por perfil/secao.
+15. Criar estrutura de votacao.
+16. Carregar amostra piloto 2022 da ZE 20.
+17. Popular votaveis, votacao e apuracao para a amostra piloto.
 
-Tambem e recomendavel criar uma fato agregada por secao/cargo a partir de `fato.votacao_candidato_secao` ou de fonte oficial de boletim de urna:
+Para reprocessamento completo com volume vazio, seguir a ordem documentada em `docs/resumo_contexto_proxima_sessao.md`.
 
-```sql
-create table fato.apuracao_secao (
-  eleicao_id bigint not null references dim.eleicao (eleicao_id),
-  secao_id bigint not null references dim.secao_eleitoral (secao_id),
-  cargo_id smallint not null references dim.cargo_eleitoral (cargo_id),
-  qt_aptos integer,
-  qt_comparecimento integer,
-  qt_abstencoes integer,
-  qt_votos_nominais integer,
-  qt_votos_legenda integer,
-  qt_votos_brancos integer,
-  qt_votos_nulos integer,
-  primary key (eleicao_id, secao_id, cargo_id)
-);
-```
+## 12. Regras de negocio criticas
 
-## 8. Tabelas auxiliares de qualidade e conciliacao
+Locais:
 
-```sql
-create table aux.qualidade_dado (
-  qualidade_id bigint generated always as identity primary key,
-  entidade text not null,
-  chave_natural text not null,
-  severidade text not null,
-  regra text not null,
-  detalhe text,
-  source_file text,
-  detected_at timestamptz not null default now()
-);
+- Usar chave `eleicao_id + uf_id + nr_zona + nr_local_votacao`.
+- Preservar 614 pares oficiais TRE como principais.
+- Preservar os 8 pares adicionais do CSV como nao principais para checagem futura.
 
-create table aux.local_votacao_alias (
-  alias_id bigint generated always as identity primary key,
-  local_id bigint not null references dim.local_votacao (local_id),
-  nr_local_votacao integer,
-  nome_original text,
-  endereco_original text,
-  source_file text,
-  unique (local_id, source_file, nome_original)
-);
+Secoes:
 
-create table aux.ra_alias (
-  alias_id bigint generated always as identity primary key,
-  ra_id bigint not null references dim.regiao_administrativa (ra_id),
-  ra_codigo_original text,
-  ra_nome_original text,
-  source_file text,
-  unique (source_file, ra_codigo_original, ra_nome_original)
-);
-```
+- O numero oficial TRE 2026 e 6.961 secoes principais.
+- O CSV possui 7.050 secoes por incluir agregadas e adicionais.
+- Secao agregada herda o local da secao principal.
+- `fonte_tre_confirmada` cobre 7.042 secoes apos expansao das agregadas da planilha.
 
-Regras de qualidade prioritarias:
+Perfil:
 
-- Secoes no `perfil_eleitor_secao_2026_DF.csv` sem correspondencia em `dim.secao_eleitoral`.
-- Secoes em `eleitorado_local_votacao_2026_DF.csv` ausentes na planilha `Secoes_TRE-DF_2026.xlsx`.
-- Divergencia entre `QT_ELEITOR_SECAO` e `APTOS`.
-- Local sem coordenada valida.
-- Local com ponto fora de qualquer poligono de RA.
-- RA do GeoJSON sem correspondente no shapefile e vice-versa.
-- RA sem centroide importado do GeoJSON e com centroide calculado a partir do shapefile.
-- Linha de votacao de 2022 sem correspondencia em `dim.secao_eleitoral`.
-- Linha de votacao de 2022 sem correspondencia em `dim.votavel`.
-- Voto de legenda com `NR_VOTAVEL` sem correspondencia em `dim.partido_politico.nr_partido`.
-- Duplicidade de `SQ_CANDIDATO` ou ausencia no complementar.
+- A fonte bruta possui duplicidades naturais por `secao + perfil`.
+- A fato deve consolidar duplicidades por soma.
+- `source_row_count` preserva a rastreabilidade com a fonte bruta.
 
-## 9. Fluxo de carga recomendado
+Votacao:
 
-1. Carregar arquivos brutos em `stg`.
-2. Normalizar textos com `upper(unaccent(trim(...)))` em campos de chave textual.
-3. Criar `dim.uf`.
-4. Criar `dim.eleicao`.
-5. Importar shapefile para `geo.ra_geometria` com `shp2pgsql -s 31983:4326`.
-6. Popular `dim.regiao_administrativa` e vincular geometrias.
-7. Importar centroides do GeoJSON; para as RAs ausentes no GeoJSON, calcular centroide a partir dos poligonos do shapefile com `st_pointonsurface`.
-8. Popular `dim.zona_eleitoral`.
-9. Popular `dim.local_votacao`, gerar `geom` e derivar `ra_id` por `st_contains`/`st_intersects`.
-10. Popular `dim.secao_eleitoral`, herdando RA e coordenadas do local.
-11. Popular `dim.partido_politico`, `dim.cargo_eleitoral`, `dim.federacao`, `dim.coligacao`.
-12. Popular `dim.candidato` juntando candidatura principal e complementar por `SQ_CANDIDATO`.
-13. Popular `dim.perfil_eleitor`.
-14. Popular `fato.eleitorado_perfil_secao`.
-15. Modelar e criar `dim.votavel` e `fato.votacao_candidato_secao` com base em `votacao_secao_2022_DF.csv`, sem executar a carga neste primeiro momento.
-16. Quando a carga de votacao de 2022 for autorizada, popular `dim.votavel`, `fato.votacao_candidato_secao` e `fato.apuracao_secao`.
-17. Executar regras de qualidade em `aux.qualidade_dado`.
+- `SQ_CANDIDATO = -1` representa branco/nulo.
+- `SQ_CANDIDATO = -3` representa legenda.
+- `NR_VOTAVEL = 95` com `SQ_CANDIDATO = -1` e branco.
+- `NR_VOTAVEL = 96` com `SQ_CANDIDATO = -1` e nulo.
+- 2022 e piloto; carga completa sera 2026 quando a fonte existir.
 
-## 10. Consultas que a modelagem suporta
+Privacidade:
 
-- Votacao por candidato, partido ou cargo por RA, zona, local e secao.
-- Ranking de candidatos por RA ou local.
-- Comparativo de desempenho entre RAs.
-- Mapa de calor por local de votacao.
-- Cruzamento de votos com perfil de eleitorado por faixa etaria, genero, escolaridade, raca/cor, biometria, deficiencia e nome social.
-- Analise de locais bloqueados/inativos.
-- Auditoria de secoes agregadas e local da secao principal.
-- Visualizacao de limites, centroides e pontos de votacao em mapas web.
+- CPF aberto de candidato nao e persistido em dimensao analitica.
+- `cpf_hash` permite deduplicacao/auditoria sem expor CPF.
 
-## 11. Ajustes recomendados antes da implementacao fisica
+## 13. Consultas suportadas
 
-- A fonte `votacao_secao_2022_DF.csv` ja define a estrutura de votacao por secao; confirmar apenas as proximas fontes/anos que tambem deverao alimentar a mesma fato.
-- Confirmar se `QT_ELEITORES_NAO_APTOS` deve permanecer no nivel de local ou ser rateado/ignorado no nivel de secao.
-- Definir politica de privacidade para CPF e titulo eleitoral de candidato.
-- Padronizar encoding de shapefile/GeoJSON para evitar perda de acentos na carga.
-- Validar se a RA `XXXVII` deve ser corrigida para `RA-XXXVII`.
+Com o estado atual, o banco suporta:
+
+- eleitorado por RA, local, secao e perfil demografico;
+- contagem de locais e secoes por RA/zona;
+- auditoria de locais oficiais TRE x adicionais CSV;
+- auditoria de secoes oficiais, agregadas e adicionais;
+- votacao piloto por RA/local/secao/cargo/votavel;
+- classificacao de votavel em nominal, legenda, branco e nulo;
+- drill-down de votacao via `fato.vw_votacao_drilldown`;
+- cruzamentos iniciais de eleitorado 2026 com estrutura geografica/eleitoral.
+
+Com a Etapa 16, o banco deve passar a suportar tambem:
+
+- KPIs de paineis eleitorais;
+- rankings e Pareto por RA/local/secao;
+- top2 e margem por nivel;
+- heatmap e barras empilhadas;
+- views geograficas para mapas;
+- tabelas analiticas combinando resultado e perfil do eleitorado.
+
+## 14. Pendencias e expansao
+
+Pendencias conhecidas:
+
+- Criar views e materializacoes da Etapa 16.
+- Revisar indices voltados a consultas interativas.
+- Automatizar regras completas de qualidade na Etapa 17.
+- Criar scripts de backup/restore/reprocessamento na Etapa 18.
+- Definir como tratar `QT_ELEITORES_NAO_APTOS` no nivel de local/secao.
 - Definir se zonas eleitorais terao geometria propria; as fontes atuais nao trazem limites de zona.
+- Padronizar ou curar textos com problemas de encoding, sem perder a linhagem dos arquivos originais.
+
+Expansao prevista:
+
+- Quando a fonte de votacao 2026 estiver disponivel na mesma estrutura de `votacao_secao_2022_DF.csv`, criar staging/carga completa para 2026.
+- Reaproveitar `dim.votavel`, `fato.votacao_candidato_secao`, `fato.apuracao_secao` e views da Etapa 16.
+- Adaptar carga para vincular votaveis 2026 a `dim.candidato` 2026 por `SQ_CANDIDATO` quando o identificador estiver presente.
+
+## 15. Arquivos de implementacao
+
+Scripts SQL:
+
+- `sql/00_extensions_schemas.sql`
+- `sql/01_staging/01_staging_small_medium.sql`
+- `sql/01_staging/02_staging_large.sql`
+- `sql/02_dimensoes/01_dim_uf.sql`
+- `sql/02_dimensoes/02_dim_eleicao.sql`
+- `sql/02_dimensoes/03_dimensoes_eleitorais_basicas.sql`
+- `sql/02_dimensoes/04_dim_local_votacao.sql`
+- `sql/02_dimensoes/05_dim_secao_eleitoral.sql`
+- `sql/02_dimensoes/06_dim_candidato.sql`
+- `sql/02_dimensoes/07_dim_perfil_eleitor.sql`
+- `sql/03_geoespacial/01_ra_geometria.sql`
+- `sql/04_fatos/01_fato_eleitorado_perfil_secao.sql`
+- `sql/04_fatos/02_estrutura_votacao_2022.sql`
+- `sql/04_fatos/03_carga_piloto_votacao_2022.sql`
+
+Loaders:
+
+- `scripts/load_staging.py`
+- `scripts/load_large_staging.py`
+- `scripts/load_votacao_piloto.py`
+
+Testes SQL:
+
+- `tests/sql/00_extensions_schemas_test.sql`
+- `tests/sql/01_staging_small_medium_test.sql`
+- `tests/sql/02_staging_large_test.sql`
+- `tests/sql/03_dim_uf_test.sql`
+- `tests/sql/04_dim_eleicao_test.sql`
+- `tests/sql/05_ra_geometria_test.sql`
+- `tests/sql/06_dimensoes_eleitorais_basicas_test.sql`
+- `tests/sql/07_dim_local_votacao_test.sql`
+- `tests/sql/08_dim_secao_eleitoral_test.sql`
+- `tests/sql/09_dim_candidato_test.sql`
+- `tests/sql/10_perfil_eleitor_test.sql`
+- `tests/sql/11_estrutura_votacao_2022_test.sql`
+- `tests/sql/12_carga_piloto_votacao_2022_test.sql`

@@ -30,12 +30,14 @@ with checks(check_name, expected_value, actual_value) as (
             )
         ),
         (
-            'dim_eleicao_sem_2022_sem_votacao',
-            0,
+            'dim_eleicao_2022_piloto_count',
+            1,
             (
                 select count(*)::integer
                 from dim.eleicao
                 where ano = 2022
+                  and turno = 1
+                  and cd_eleicao = 546
             )
         )
 )

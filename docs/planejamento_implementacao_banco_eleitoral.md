@@ -7,7 +7,7 @@ Este plano organiza a implementacao do banco de dados relacional e geoespacial d
 - Banco em conteineres com persistencia de dados.
 - PostgreSQL com PostGIS habilitado.
 - Carga inicial focada em estrutura, staging, dimensoes e fatos derivadas das fontes disponiveis.
-- `votacao_secao_2022_DF.csv` sera usado para modelar a estrutura de votacao, mas sua carga completa fica para etapa posterior/autorizada.
+- `votacao_secao_2022_DF.csv` sera usado apenas como amostra piloto/modelagem da estrutura de votacao. A carga completa ocorrera somente com os dados de votacao 2026, quando estiverem disponiveis na mesma estrutura.
 - Arquivos fonte permanecem em `fontes/`.
 - Toda etapa deve ter script proprio, teste proprio e consultas manuais de conferencia.
 
@@ -261,7 +261,7 @@ Escopo:
 
 Observacao:
 
-- A tabela de staging de votacao pode ser criada agora, mas a carga completa de `votacao_secao_2022_DF.csv` deve aguardar autorizacao da etapa de votacao.
+- A tabela de staging de votacao pode ser criada agora. O arquivo `votacao_secao_2022_DF.csv` deve permanecer restrito a amostra piloto; a carga completa sera feita somente com dados de votacao 2026 quando disponiveis na mesma estrutura.
 
 Estrategia:
 
@@ -489,7 +489,9 @@ Fontes:
 
 Regras:
 
-- Chave natural: `eleicao_id + uf_id + nr_local_votacao`.
+- Chave natural: `eleicao_id + uf_id + nr_zona + nr_local_votacao`.
+- Considerar como principais os 614 pares `zona + local` coincidentes com a planilha oficial do TRE.
+- Preservar pares adicionais encontrados no CSV oficial com flag de nao principal para checagem futura.
 - Gerar `geom` a partir de latitude/longitude quando disponiveis.
 - Derivar `ra_id` por intersecao espacial.
 - Para locais sem coordenada, registrar pendencia em `aux.qualidade_dado`.
@@ -517,7 +519,9 @@ order by locais desc;
 Valores esperados para 2026:
 
 - 108 numeros de locais distintos.
-- 614 combinacoes `zona + local` nas planilhas TRE.
+- 622 combinacoes `zona + local` no CSV oficial.
+- 614 combinacoes `zona + local` nas planilhas TRE, todas contidas no CSV oficial e marcadas como principais.
+- 8 combinacoes adicionais do CSV oficial, preservadas para checagem futura.
 
 Criterio de aceite:
 
@@ -538,7 +542,8 @@ Fontes:
 Regras:
 
 - Chave natural: `eleicao_id + uf_id + nr_zona + nr_secao`.
-- Herdar `ra_id`, `latitude`, `longitude` e `geom` do local.
+- Herdar `ra_id`, `latitude`, `longitude` e `geom` do local efetivo.
+- Para `DS_TIPO_SECAO_AGREGADA = Agregada`, considerar o `NR_LOCAL_VOTACAO` como local da secao principal indicada em `NR_SECAO_PRINCIPAL`; validar que a secao principal existe e que a agregada herda seu `local_id`.
 - Registrar secoes agregadas e a secao principal.
 - Conciliar `QT_ELEITOR_SECAO`, `APTOS` e `SUSPENSOS`.
 
@@ -563,7 +568,10 @@ where ra_id is null;
 Valores esperados para 2026:
 
 - 7.050 secoes no CSV `eleitorado_local_votacao_2026_DF.csv`.
-- 6.961 secoes na planilha TRE.
+- 6.961 secoes principais oficiais na planilha TRE.
+- 7.042 secoes representadas pela planilha TRE quando expandidas as secoes agregadas entre parenteses.
+- 81 secoes agregadas no CSV.
+- 8 secoes adicionais presentes apenas no CSV, preservadas com flag para checagem futura.
 
 Criterio de aceite:
 
@@ -626,6 +634,7 @@ Regras:
 - Atributos demograficos em `dim.perfil_eleitor`.
 - Contagens em `fato.eleitorado_perfil_secao`.
 - Relacionar cada linha a `secao_id`, `local_id` e `ra_id`.
+- Consolidar duplicidades naturais de `secao + perfil` por soma das medidas, preservando a quantidade de linhas brutas em `source_row_count`.
 
 Consultas manuais:
 
@@ -659,7 +668,8 @@ limit 50;
 
 Criterio de aceite:
 
-- Fato carregada com todas as linhas do perfil.
+- Fato representa todas as linhas do perfil por agregacao `secao + perfil`.
+- A soma de `source_row_count` deve bater com as 1.233.369 linhas brutas da fonte.
 - Divergencias entre perfil e aptos por secao registradas.
 
 ## Etapa 13 - Estrutura de votacao de 2022
@@ -714,9 +724,11 @@ Objetivo: testar a estrutura de votacao com subconjunto pequeno antes da carga c
 
 Estrategia:
 
-- Carregar apenas uma amostra controlada, por exemplo uma zona ou 1.000 linhas.
+- Carregar apenas uma amostra controlada.
+- Implementado na Etapa 14 com amostra deterministica da ZE 20: 44.464 linhas.
 - Popular `dim.votavel` para a amostra.
 - Popular `fato.votacao_candidato_secao`.
+- Popular `fato.apuracao_secao`.
 - Validar drill-down.
 
 Consultas manuais:
@@ -750,15 +762,16 @@ Criterio de aceite:
 - Soma de votos da amostra bate com staging da amostra.
 - Branco, nulo, legenda e nominal aparecem classificados corretamente.
 - A view responde em tempo aceitavel para amostra.
+- Carga completa de `votacao_secao_2022_DF.csv` nao ocorrera; 2022 permanece apenas como piloto tecnico.
 
-## Etapa 15 - Carga completa de votacao de 2022
+## Etapa 15 - Carga completa de votacao de 2026 futura
 
-Objetivo: carregar `votacao_secao_2022_DF.csv` completo, quando autorizado.
+Objetivo: carregar os dados completos de votacao 2026 quando estiverem disponiveis na mesma estrutura validada com a amostra piloto 2022.
 
 Estrategia:
 
 - Carregar staging por `COPY` ou chunks.
-- Criar/atualizar locais e secoes de 2022 a partir da fonte.
+- Criar/atualizar locais e secoes de 2026 a partir da fonte.
 - Conciliar locais com coordenadas conhecidas.
 - Popular `dim.votavel`.
 - Popular `fato.votacao_candidato_secao`.
@@ -783,8 +796,8 @@ order by cargo_id;
 
 Valores esperados:
 
-- 1.238.611 linhas na staging.
-- 1.238.611 linhas na fato, salvo regra documentada de exclusao.
+- Contagem oficial da fonte de votacao 2026 na staging.
+- Mesma contagem na fato, salvo regra documentada de exclusao/agregacao.
 
 Criterio de aceite:
 
@@ -797,6 +810,17 @@ Criterio de aceite:
 
 Objetivo: preparar o banco para consulta interativa.
 
+Observacao: esta etapa pode avancar antes da carga completa de votacao 2026, usando a amostra piloto 2022 da ZE 20 e os fatos completos de eleitorado 2026.
+
+Contexto de consumo futuro:
+
+- A especificacao `fontes/especificacao-tecnica-painel-eleitoral.md` indica que as views devem atender paineis de mapa, KPIs, rankings, Pareto, heatmap, barras empilhadas, tabelas analiticas e drill-down.
+- A hierarquia principal de navegacao sera `DF -> RA -> local de votacao -> secao`, com filtros por eleicao, cargo, turno, candidato/votavel, lider, margem, busca textual e Pareto.
+- Os paineis de resultados gerais precisam de total bruto, votos validos, brancos, nulos, top candidatos, lider por RA/local/secao, segundo colocado, margem em votos e percentual, regioes competitivas e cobertura de zonas/locais/secoes.
+- Os paineis candidato-especificos precisam de votos do candidato, percentual no nivel filtrado, percentual no total, posicao/ranking, top2 comparativo, Pareto 80%, vitorias e zeros por RA/local/secao.
+- O painel de perfil do eleitor precisa de agregacoes por RA/local/secao e dimensao demografica, com dominante por genero, faixa etaria, estado civil, escolaridade e demais atributos disponiveis.
+- As respostas futuras devem se aproximar dos formatos atuais dos JSONs legados para reduzir refatoracao do frontend.
+
 Entregaveis:
 
 - Views de drill-down.
@@ -807,11 +831,40 @@ Entregaveis:
 Views recomendadas:
 
 - `fato.vw_votacao_drilldown`
+- `fato.vw_votacao_resultado_nivel`
 - `fato.vw_votacao_ra_candidato`
 - `fato.vw_votacao_local_candidato`
+- `fato.vw_votacao_secao_candidato`
+- `fato.vw_votacao_rank_pareto`
+- `fato.vw_votacao_top2_margem`
+- `fato.vw_votacao_heatmap_top5`
+- `fato.vw_votacao_stacked_ra_top5`
+- `fato.vw_vitorias_zeros_votavel`
 - `fato.vw_eleitorado_perfil_ra`
+- `fato.vw_eleitorado_perfil_local`
+- `fato.vw_eleitorado_perfil_secao`
+- `fato.vw_eleitorado_dominante_ra`
 - `geo.vw_ra_mapa`
 - `geo.vw_local_votacao_mapa`
+
+Contratos minimos de colunas:
+
+- Views de resultado por nivel: `eleicao_id`, `ano`, `turno`, `cd_eleicao`, `cargo_id`, `cd_cargo`, `ds_cargo`, `nivel`, `ra_id`, `ra_codigo`, `ra_nome`, `local_id`, `nr_local_votacao`, `local_votacao`, `secao_id`, `nr_zona`, `nr_secao`, `votavel_id`, `nr_votavel`, `nm_votavel`, `tipo_votavel`, `partido_id`, `sg_partido`, `qt_votos`, `votos_validos_nivel`, `percentual_no_nivel`, `percentual_no_total`, `ranking`, `cum_pct`, `dentro_pareto80`.
+- Views de top2/margem: chaves do nivel, `lider_nr_votavel`, `lider_nm_votavel`, `lider_votos`, `lider_percentual`, `segundo_nr_votavel`, `segundo_nm_votavel`, `segundo_votos`, `margem_votos`, `margem_percentual`, `tipo_regiao`.
+- Views geograficas: chaves do nivel, nome, endereco quando aplicavel, latitude, longitude, `geom`, totais de votos/eleitores e metricas de intensidade para mapa.
+- Views de eleitorado: chaves de RA/local/secao, dimensao, codigo, descricao, quantidade, percentual e campos auxiliares para identificar categoria dominante.
+
+Indices prioritarios:
+
+- `fato.votacao_candidato_secao(eleicao_id, cargo_id, votavel_id)`.
+- `fato.votacao_candidato_secao(eleicao_id, cargo_id, ra_id)`.
+- `fato.votacao_candidato_secao(eleicao_id, cargo_id, local_id)`.
+- `fato.votacao_candidato_secao(eleicao_id, cargo_id, secao_id)`.
+- `fato.votacao_candidato_secao(eleicao_id, cargo_id, tipo_votavel)`.
+- `dim.votavel(eleicao_id, cargo_id, nr_votavel)`.
+- `dim.local_votacao(eleicao_id, uf_id, ra_id, nr_zona, nr_local_votacao)`.
+- `dim.secao_eleitoral(eleicao_id, uf_id, local_id, nr_zona, nr_secao)`.
+- GiST em geometrias de `geo.ra_geometria` e `dim.local_votacao` quando ainda nao existir.
 
 Consultas manuais:
 
