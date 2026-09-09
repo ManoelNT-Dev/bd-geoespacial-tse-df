@@ -34,6 +34,42 @@ create table if not exists stg.perfil_eleitor_secao_2026_df (
     row_number integer not null
 );
 
+create table if not exists stg.perfil_eleitor_secao_2026_go (
+    dt_geracao text,
+    hh_geracao text,
+    aa_eleicao text,
+    sg_uf text,
+    cd_municipio text,
+    nm_municipio text,
+    nr_zona text,
+    nr_secao text,
+    nr_local_votacao text,
+    nm_local_votacao text,
+    cd_genero text,
+    ds_genero text,
+    cd_estado_civil text,
+    ds_estado_civil text,
+    cd_faixa_etaria text,
+    ds_faixa_etaria text,
+    cd_grau_escolaridade text,
+    ds_grau_escolaridade text,
+    cd_raca_cor text,
+    ds_raca_cor text,
+    cd_identidade_genero text,
+    ds_identidade_genero text,
+    cd_quilombola text,
+    ds_quilombola text,
+    cd_interprete_libras text,
+    ds_interprete_libras text,
+    qt_eleitores text,
+    qt_eleitores_biometria text,
+    qt_eleitores_deficiencia text,
+    qt_eleitores_nome_social text,
+    source_file text not null,
+    loaded_at timestamptz not null default now(),
+    row_number integer not null
+);
+
 create table if not exists stg.votacao_secao_2022_df (
     dt_geracao text,
     hh_geracao text,

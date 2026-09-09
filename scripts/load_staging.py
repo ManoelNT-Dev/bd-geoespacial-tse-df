@@ -152,6 +152,45 @@ def load_geojson(conn: psycopg.Connection) -> int:
     return copy_rows(conn, "stg.geo_ra_centroid_atualizado", columns, rows())
 
 
+def load_pmb_json(conn: psycopg.Connection) -> int:
+    source_file = "eleitorado_PMB_2026.json"
+    path = FONTES_DIR / source_file
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    with conn.cursor() as cur:
+        cur.execute("delete from stg.eleitorado_pmb_2026_json where source_file = %s;", (source_file,))
+        cur.execute(
+            """
+            insert into stg.eleitorado_pmb_2026_json (payload, source_file)
+            values (%s, %s);
+            """,
+            (json.dumps(payload, ensure_ascii=False), source_file),
+        )
+    return 1
+
+
+def load_ra_sociodemografia_json(conn: psycopg.Connection) -> int:
+    source_file = "perfil_sociodemografico_ra_df_2025_estruturado.json"
+    path = FONTES_DIR / source_file
+    if not path.exists():
+        source_file = "perfil_eleitorado_df_2025_consolidado_12jan2026.json"
+        path = FONTES_DIR / source_file
+
+    payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    with conn.cursor() as cur:
+        cur.execute(
+            "delete from stg.perfil_sociodemografico_ra_df_json where source_file = %s;",
+            (source_file,),
+        )
+        cur.execute(
+            """
+            insert into stg.perfil_sociodemografico_ra_df_json (payload, source_file)
+            values (%s, %s);
+            """,
+            (json.dumps(payload, ensure_ascii=False), source_file),
+        )
+    return 1
+
+
 def load_shapefile(conn: psycopg.Connection) -> int:
     source_file = "shapefile_ras/regioes_administrativas.shp"
     path = FONTES_DIR / source_file
@@ -201,6 +240,8 @@ def main() -> None:
         *(config["table"] for config in CSV_LOADS),
         *(config["table"] for config in XLSX_LOADS),
         "stg.geo_ra_centroid_atualizado",
+        "stg.eleitorado_pmb_2026_json",
+        "stg.perfil_sociodemografico_ra_df_json",
         "stg.ra_shapefile",
     ]
 
@@ -216,6 +257,8 @@ def main() -> None:
             loaded_counts.append((config["table"], load_xlsx(conn, config)))
 
         loaded_counts.append(("stg.geo_ra_centroid_atualizado", load_geojson(conn)))
+        loaded_counts.append(("stg.eleitorado_pmb_2026_json", load_pmb_json(conn)))
+        loaded_counts.append(("stg.perfil_sociodemografico_ra_df_json", load_ra_sociodemografia_json(conn)))
         loaded_counts.append(("stg.ra_shapefile", load_shapefile(conn)))
 
     for table, count in loaded_counts:

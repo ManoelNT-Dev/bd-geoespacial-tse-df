@@ -770,3 +770,193 @@ Observacoes:
 - A carga piloto usa apenas `NR_ZONA = 20`.
 - `tests/sql/02_staging_large_test.sql`, `tests/sql/04_dim_eleicao_test.sql`, `tests/sql/07_dim_local_votacao_test.sql`, `tests/sql/08_dim_secao_eleitoral_test.sql` e `tests/sql/11_estrutura_votacao_2022_test.sql` foram ajustados para refletir o novo estado com piloto 2022 e manter as contagens oficiais de 2026 isoladas.
 - A carga completa de `votacao_secao_2022_DF.csv` nao ocorrera. O arquivo 2022 permanece apenas como amostra piloto/modelagem; a carga completa futura sera dos dados de votacao 2026 na mesma estrutura.
+
+## Etapa 15 - Recorte PMB
+
+Gerar JSON PMB estruturado:
+
+```powershell
+python scripts\build_pmb_eleitorado_json.py
+```
+
+Resultado obtido em 2026-09-09:
+
+```text
+Municipios PMB: 12
+Eleitores PMB: 759538
+Populacao IBGE 2025 PMB: 1362821
+```
+
+Validar JSON:
+
+```powershell
+python -m json.tool fontes\eleitorado_PMB_2026.json
+```
+
+Validar fechamento local:
+
+```powershell
+python -c "import json; d=json.load(open('fontes/eleitorado_PMB_2026.json',encoding='utf-8')); total=d['totais_gerais']['eleitores_total']; print('municipios', d['pmb']['total_municipios']); print('total_eleitores', total); print('soma_municipios', sum(m['totais']['eleitores_total'] for m in d['pmb']['municipios'])); print('pop_2025', sum(m['pop_municipio'] for m in d['pmb']['municipios'])); print([(k, sum(i['quantidade'] for i in v)) for k,v in d['perfil_geral'].items()])"
+```
+
+Resultado esperado:
+
+- `municipios = 12`
+- `total_eleitores = 759538`
+- `soma_municipios = 759538`
+- `pop_2025 = 1362821`
+- todas as dimensoes de `perfil_geral` somam `759538`
+
+Aplicar/cargar no banco quando retomar:
+
+```powershell
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /sql/01_staging/01_staging_small_medium.sql
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /sql/01_staging/02_staging_large.sql
+python scripts\load_staging.py
+python scripts\load_large_staging.py --include-pmb-go
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /sql/02_dimensoes/01_dim_uf.sql
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /sql/02_dimensoes/07_dim_perfil_eleitor.sql
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /sql/02_dimensoes/08_dim_municipio_recorte_pmb.sql
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /sql/04_fatos/04_fato_eleitorado_perfil_municipio_pmb.sql
+```
+
+Consultas de validacao no banco:
+
+```powershell
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select count(*) as municipios from dim.municipio;"
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select rg.codigo, count(*) as municipios from dim.recorte_geografico rg join dim.recorte_municipio rm on rm.recorte_id = rg.recorte_id group by rg.codigo;"
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select sum(qt_eleitores) as eleitores from fato.eleitorado_perfil_municipio;"
+```
+
+Resultados esperados:
+
+- `dim.municipio`: 12 registros da PMB, se ainda nao houver outros municipios.
+- `PMB`: 12 municipios.
+- `fato.eleitorado_perfil_municipio`: soma de `qt_eleitores = 759538`.
+
+## Etapa 16 - Sociodemografia por RA
+
+Gerar JSON estruturado sociodemografico:
+
+```powershell
+python scripts\build_ra_sociodemografia_json.py
+```
+
+Resultado obtido em 2026-09-09:
+
+```text
+RAs estruturadas: 37
+Populacao DF: 2982816
+```
+
+Validar JSON:
+
+```powershell
+python -m json.tool fontes\perfil_sociodemografico_ra_df_2025_estruturado.json
+```
+
+Validar fechamento local e ausencia de campos eleitorais:
+
+```powershell
+python -X utf8 -c "import json; d=json.load(open('fontes/perfil_sociodemografico_ra_df_2025_estruturado.json',encoding='utf-8')); print(d['metadata']); print('has_electoral_ra_fields', any('totais' in ra or 'perfil' in ra for ra in d['regioes_administrativas'])); print('sum_pop', sum(ra['populacao_raca_cor']['total_geral'] for ra in d['regioes_administrativas'])); print('adjusted_count', sum(1 for ra in d['regioes_administrativas'] if ra.get('derivacao',{}).get('tipo_ajuste_total_df') == 'rateio_proporcional_total_oficial')); print([(ra['ra_nome'], ra['populacao_raca_cor']['total_geral']) for ra in d['regioes_administrativas'] if ra['ra_nome'] in ['GAMA','VICENTE PIRES','26 DE SETEMBRO','PONTE ALTA']])"
+```
+
+Resultado esperado:
+
+- `has_electoral_ra_fields = False`
+- `sum_pop = 2982816`
+- `adjusted_count = 33`
+- `GAMA = 88496`
+- `VICENTE PIRES = 75668`
+- `26 DE SETEMBRO = 29394`
+- `PONTE ALTA = 45452`
+
+Aplicar/cargar no banco quando retomar:
+
+```powershell
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /sql/01_staging/01_staging_small_medium.sql
+python scripts\load_staging.py
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /sql/04_fatos/05_fato_sociodemografia_ra.sql
+```
+
+Consultas de validacao no banco:
+
+```powershell
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select count(distinct ra_id) as ras, count(*) as indicadores from fato.sociodemografia_ra;"
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select ra.ra_nome, i.codigo, f.valor_num from fato.sociodemografia_ra f join dim.regiao_administrativa ra on ra.ra_id = f.ra_id join dim.indicador_sociodemografico i on i.indicador_id = f.indicador_id where i.codigo = 'populacao_total' and ra.ra_nome_normalizado in ('GAMA','VICENTE PIRES','26 DE SETEMBRO','PONTE ALTA') order by ra.ra_nome;"
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select severidade, regra, count(*) from aux.qualidade_dado where entidade in ('sociodemografia_ra','perfil_sociodemografico_ra_df_json') group by severidade, regra order by severidade, regra;"
+```
+
+Resultados esperados:
+
+- 37 RAs distintas em `fato.sociodemografia_ra`.
+- Populacoes: `GAMA = 88496`, `VICENTE PIRES = 75668`, `26 DE SETEMBRO = 29394`, `PONTE ALTA = 45452`.
+- Nenhum erro `ra_sociodemografia_sem_dim_ra`.
+
+## Encerramento da sessao - Checklist de retomada
+
+Validacao local final da regra das 37 RAs:
+
+```powershell
+python scripts\build_ra_sociodemografia_json.py
+python -X utf8 -c "import json; d=json.load(open('fontes/perfil_sociodemografico_ra_df_2025_estruturado.json',encoding='utf-8')); ras=d['regioes_administrativas']; print('ras', len(ras)); print('global', d['sociodemografia_geral_df']['demografia_raca_cor_geral']['total_geral']); print('sum', sum(ra['populacao_raca_cor']['total_geral'] for ra in ras)); print('fixed', [(ra['ra_nome'], ra['populacao_raca_cor']['total_geral']) for ra in ras if ra['ra_nome'] in ['GAMA','VICENTE PIRES','26 DE SETEMBRO','PONTE ALTA']]); print('adjusted_count', sum(1 for ra in ras if ra.get('derivacao',{}).get('tipo_ajuste_total_df') == 'rateio_proporcional_total_oficial'))"
+```
+
+Resultado obtido:
+
+```text
+RAs estruturadas: 37
+Populacao DF: 2982816
+ras 37
+global 2982816
+sum 2982816
+fixed [('GAMA', 88496), ('VICENTE PIRES', 75668), ('26 DE SETEMBRO', 29394), ('PONTE ALTA', 45452)]
+adjusted_count 33
+```
+
+Comandos iniciais da proxima sessao:
+
+```powershell
+cd C:\Users\mnt50\DEV\code_teste_r2
+docker compose up -d
+docker compose ps
+docker compose exec -T db pg_isready -U eleitoral_app -d eleitoral
+git status --short
+Get-Content .\docs\resumo_contexto_proxima_sessao.md -Raw
+```
+
+## Testes de carga no conteiner - Resultado 2026-09-09
+
+Comandos principais executados:
+
+```powershell
+docker compose up -d
+docker compose exec -T db pg_isready -U eleitoral_app -d eleitoral
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /sql/01_staging/01_staging_small_medium.sql
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /sql/01_staging/02_staging_large.sql
+python scripts\load_staging.py
+python scripts\load_large_staging.py --include-pmb-go
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /sql/02_dimensoes/01_dim_uf.sql
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /sql/02_dimensoes/07_dim_perfil_eleitor.sql
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /sql/02_dimensoes/08_dim_municipio_recorte_pmb.sql
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /sql/04_fatos/04_fato_eleitorado_perfil_municipio_pmb.sql
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /sql/04_fatos/05_fato_sociodemografia_ra.sql
+python scripts\load_votacao_piloto.py
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /sql/04_fatos/03_carga_piloto_votacao_2022.sql
+Get-ChildItem tests\sql\*.sql | Sort-Object Name | ForEach-Object { docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f ("/tests/sql/" + $_.Name) }
+```
+
+Resultados obtidos:
+
+```text
+stg.perfil_eleitor_secao_2026_df: 1233369 linhas carregadas
+stg.perfil_eleitor_secao_2026_go: 3056357 linhas carregadas
+dim.perfil_eleitor: 13628 perfis
+dim.municipio: 12
+recorte PMB: 12 municipios
+fato.eleitorado_perfil_municipio: 34927 linhas, 759538 eleitores
+fato.sociodemografia_ra: 37 RAs, 592 indicadores
+fato.sociodemografia_ra_resumo: 37 resumos
+aux.qualidade_dado para PMB/sociodemografia: 0 erros
+suite tests/sql/00 a 14: zero divergencias
+```

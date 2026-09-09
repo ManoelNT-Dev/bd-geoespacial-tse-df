@@ -2,12 +2,12 @@ with checks(check_name, expected_value, actual_value) as (
     values
         (
             'dim_perfil_eleitor_count',
-            8468,
+            13628,
             (select count(*)::integer from dim.perfil_eleitor)
         ),
         (
             'dim_perfil_eleitor_hash_distintos',
-            8468,
+            13628,
             (select count(distinct perfil_hash)::integer from dim.perfil_eleitor)
         ),
         (

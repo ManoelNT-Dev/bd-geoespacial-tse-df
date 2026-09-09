@@ -24,7 +24,46 @@ create index if not exists perfil_eleitor_faixa_etaria_idx on dim.perfil_eleitor
 create index if not exists perfil_eleitor_escolaridade_idx on dim.perfil_eleitor (cd_grau_escolaridade);
 create index if not exists perfil_eleitor_raca_cor_idx on dim.perfil_eleitor (cd_raca_cor);
 
-with source_perfil as (
+with source_raw as (
+    select
+        cd_genero,
+        ds_genero,
+        cd_estado_civil,
+        ds_estado_civil,
+        cd_faixa_etaria,
+        ds_faixa_etaria,
+        cd_grau_escolaridade,
+        ds_grau_escolaridade,
+        cd_raca_cor,
+        ds_raca_cor,
+        cd_identidade_genero,
+        ds_identidade_genero,
+        cd_quilombola,
+        ds_quilombola,
+        cd_interprete_libras,
+        ds_interprete_libras
+    from stg.perfil_eleitor_secao_2026_df
+    union all
+    select
+        cd_genero,
+        ds_genero,
+        cd_estado_civil,
+        ds_estado_civil,
+        cd_faixa_etaria,
+        ds_faixa_etaria,
+        cd_grau_escolaridade,
+        ds_grau_escolaridade,
+        cd_raca_cor,
+        ds_raca_cor,
+        cd_identidade_genero,
+        ds_identidade_genero,
+        cd_quilombola,
+        ds_quilombola,
+        cd_interprete_libras,
+        ds_interprete_libras
+    from stg.perfil_eleitor_secao_2026_go
+),
+source_perfil as (
     select distinct
         md5(concat_ws(
             '|',
@@ -53,7 +92,7 @@ with source_perfil as (
         ds_quilombola,
         cd_interprete_libras::integer as cd_interprete_libras,
         ds_interprete_libras
-    from stg.perfil_eleitor_secao_2026_df
+    from source_raw
 )
 insert into dim.perfil_eleitor (
     perfil_hash,

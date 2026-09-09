@@ -764,7 +764,136 @@ Criterio de aceite:
 - A view responde em tempo aceitavel para amostra.
 - Carga completa de `votacao_secao_2022_DF.csv` nao ocorrera; 2022 permanece apenas como piloto tecnico.
 
-## Etapa 15 - Carga completa de votacao de 2026 futura
+## Etapa 15 - Recorte PMB
+
+Objetivo: incorporar a Periferia Metropolitana de Brasilia como recorte de municipios goianos, sem misturar municipios com RAs do DF.
+
+Fontes:
+
+- `fontes/eleitorado_PMB_2026.json`
+- `fontes/perfil_eleitor_secao_2026_GO.csv`
+
+Entregaveis:
+
+- `scripts/build_pmb_eleitorado_json.py`
+- `stg.eleitorado_pmb_2026_json`
+- `stg.perfil_eleitor_secao_2026_go`
+- `dim.municipio`
+- `dim.recorte_geografico`
+- `dim.recorte_municipio`
+- `fato.eleitorado_perfil_municipio`
+- `docs/modelagem_pmb.md`
+
+Regras:
+
+- `municipio_codigo` preserva o codigo TSE.
+- `municipio_codigo_ibge` e usado para integracao territorial e populacao IBGE.
+- PMB e recorte de municipios, nao RA.
+- Perfil PMB e agregado a partir do CSV GO por municipio e combinacao demografica.
+- Populacao municipal vem de IBGE/SIDRA, tabela 6579, variavel 9324, periodo 2025.
+
+Validacoes:
+
+```powershell
+python scripts\build_pmb_eleitorado_json.py
+python -m json.tool fontes\eleitorado_PMB_2026.json
+python scripts\load_large_staging.py --include-pmb-go
+```
+
+Consultas manuais:
+
+```sql
+select count(*) from dim.municipio;
+
+select rg.codigo, count(*)
+from dim.recorte_geografico rg
+join dim.recorte_municipio rm on rm.recorte_id = rg.recorte_id
+group by rg.codigo;
+
+select sum(qt_eleitores)
+from fato.eleitorado_perfil_municipio;
+```
+
+Valores esperados:
+
+- 12 municipios no recorte PMB.
+- 759.538 eleitores no JSON PMB.
+- 1.362.821 habitantes na soma IBGE/SIDRA 2025.
+
+Criterio de aceite:
+
+- Recorte PMB carrega sem afetar RAs do DF.
+- Todos os municipios possuem codigo TSE e IBGE.
+- Soma da fato municipal fecha com o JSON PMB.
+
+## Etapa 16 - Sociodemografia por RA
+
+Objetivo: incorporar indicadores sociodemograficos por RA em estrutura separada da modelagem eleitoral.
+
+Fontes:
+
+- `fontes/perfil_eleitorado_df_2025_consolidado_12jan2026.json`
+- `fontes/perfil_sociodemografico_ra_df_2025_estruturado.json`
+
+Entregaveis:
+
+- `scripts/build_ra_sociodemografia_json.py`
+- `stg.perfil_sociodemografico_ra_df_json`
+- `dim.indicador_sociodemografico`
+- `fato.sociodemografia_ra`
+- `fato.sociodemografia_ra_resumo`
+- `docs/modelo_arquivo_sociodemografia_ra_df.md`
+
+Regras:
+
+- O arquivo estruturado deve conter apenas sociodemografia, sem `totais` ou `perfil` eleitoral.
+- `26 DE SETEMBRO` herda proporcionalmente os indicadores de `VICENTE PIRES`.
+- `PONTE ALTA` herda proporcionalmente os indicadores de `GAMA`.
+- `VICENTE PIRES` e `GAMA` sao ajustadas pela populacao subtraida.
+- Quantidades sao ajustadas proporcionalmente e arredondadas para fechamento.
+- Percentuais e medias sao preservados quando nao ha microdados.
+- A soma das RAs deve fechar no total oficial do DF: 2.982.816.
+- As quatro RAs do desdobramento ficam fixas; a diferenca remanescente e rateada proporcionalmente nas demais 33 RAs.
+- A fato sociodemografica se relaciona ao restante do banco por `ra_id`.
+
+Validacoes:
+
+```powershell
+python scripts\build_ra_sociodemografia_json.py
+python -m json.tool fontes\perfil_sociodemografico_ra_df_2025_estruturado.json
+```
+
+Consultas manuais:
+
+```sql
+select count(distinct ra_id), count(*)
+from fato.sociodemografia_ra;
+
+select ra.ra_nome, i.codigo, f.valor_num, f.percentual
+from fato.sociodemografia_ra f
+join dim.regiao_administrativa ra on ra.ra_id = f.ra_id
+join dim.indicador_sociodemografico i on i.indicador_id = f.indicador_id
+where ra.ra_nome_normalizado in ('GAMA', 'VICENTE PIRES', '26 DE SETEMBRO', 'PONTE ALTA')
+  and i.codigo = 'populacao_total'
+order by ra.ra_nome;
+```
+
+Valores esperados:
+
+- 37 RAs no JSON estruturado.
+- Populacao por RA soma 2.982.816.
+- `GAMA`: 88.496.
+- `VICENTE PIRES`: 75.668.
+- `26 DE SETEMBRO`: 29.394.
+- `PONTE ALTA`: 45.452.
+
+Criterio de aceite:
+
+- Nenhuma RA sociodemografica sem correspondencia em `dim.regiao_administrativa`.
+- `fato.sociodemografia_ra` possui registros para 37 RAs.
+- Campos eleitorais permanecem fora do JSON estruturado.
+
+## Etapa 17 - Carga completa de votacao de 2026 futura
 
 Objetivo: carregar os dados completos de votacao 2026 quando estiverem disponiveis na mesma estrutura validada com a amostra piloto 2022.
 
@@ -806,7 +935,7 @@ Criterio de aceite:
 - Drill-down UF -> RA -> local -> secao operacional.
 - Pendencias de RA/local sem coordenada registradas.
 
-## Etapa 16 - Views, materializacoes e indices de consulta
+## Etapa 18 - Views, materializacoes e indices de consulta
 
 Objetivo: preparar o banco para consulta interativa.
 
@@ -883,7 +1012,7 @@ Criterio de aceite:
 - Consultas principais usam indices adequados.
 - Tempo de resposta aceitavel para filtros por RA/local/cargo/votavel.
 
-## Etapa 17 - Qualidade de dados
+## Etapa 19 - Qualidade de dados
 
 Objetivo: automatizar validacoes e registrar divergencias.
 
@@ -921,7 +1050,7 @@ Criterio de aceite:
 - Regras executam sem erro.
 - Divergencias sao rastreaveis por entidade, chave natural e arquivo fonte.
 
-## Etapa 18 - Backup, restore e reprocessamento
+## Etapa 20 - Backup, restore e reprocessamento
 
 Objetivo: garantir recuperacao e repetibilidade.
 
@@ -1062,12 +1191,16 @@ Sessao 9:
 
 Sessao 10:
 
-- Etapas 15, 16 e 17.
-- Resultado: votacao completa, views de consulta e qualidade de dados.
+- Etapas 15 e 16.
+- Resultado atual: scripts, SQLs e documentacao de PMB e sociodemografia por RA criados; JSONs derivados gerados; cargas executadas no Postgres; testes SQL das Etapas 15 e 16 criados e aprovados.
 
 Sessao 11:
 
-- Etapa 18.
+- Retomar por views/indices, qualidade automatizada e rotina unica de execucao das cargas/testes.
+
+Sessao 12:
+
+- Etapa 20.
 - Resultado: backup, restore e reprocessamento documentados.
 
 ## Ordem de dependencia
@@ -1084,6 +1217,8 @@ Conteineres
   -> Secao eleitoral
   -> Candidato
   -> Perfil eleitor
+  -> PMB municipio/recorte
+  -> Sociodemografia por RA
   -> Estrutura de votacao
   -> Carga piloto de votacao
   -> Carga completa de votacao
@@ -1091,6 +1226,16 @@ Conteineres
   -> Qualidade
   -> Backup / restore
 ```
+
+## Estado de encerramento em 2026-09-09
+
+- Etapas 0 a 14 foram executadas no banco e validadas com testes SQL existentes.
+- Etapa 15 foi implementada, carregada no PostgreSQL e validada por `tests/sql/13_pmb_test.sql`.
+- Etapa 16 foi implementada, carregada no PostgreSQL e validada por `tests/sql/14_sociodemografia_ra_test.sql`.
+- Regra final de RA: o numero oficial considerado no projeto e 37. `26 DE SETEMBRO` e `PONTE ALTA` sao novas RAs.
+- Regra final de populacao sociodemografica: total oficial DF 2.982.816; `26 DE SETEMBRO = 29394`, `PONTE ALTA = 45452`, `VICENTE PIRES = 75668`, `GAMA = 88496`; diferenca remanescente rateada nas outras 33 RAs.
+- Os dados eleitorais continuam totalizados pela modelagem existente; o JSON sociodemografico estruturado nao deve carregar `totais` nem `perfil` eleitoral.
+- Proximo passo operacional: implementar views/indices de consulta, consolidar qualidade automatizada e criar rotina unica de execucao das cargas/testes.
 
 ## Criterio final de conclusao
 
@@ -1102,6 +1247,8 @@ A implementacao pode ser considerada concluida quando:
 - RAs possuem geometrias e centroides, incluindo os 2 centroides calculados.
 - Locais e secoes possuem relacao com RA quando houver coordenada.
 - Perfil do eleitorado esta consultavel por UF, RA, local e secao.
+- PMB esta consultavel por municipio e perfil demografico.
+- Indicadores sociodemograficos estao consultaveis por RA/ano/indicador.
 - Estrutura de votacao 2022 esta criada.
 - Carga piloto de votacao foi validada.
 - Carga completa de votacao foi executada apenas se autorizada.

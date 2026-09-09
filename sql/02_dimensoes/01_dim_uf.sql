@@ -6,7 +6,9 @@ create table if not exists dim.uf (
 );
 
 insert into dim.uf (sigla, nome, codigo_ibge)
-values ('DF', 'Distrito Federal', 53)
+values
+    ('DF', 'Distrito Federal', 53),
+    ('GO', 'Goias', 52)
 on conflict (sigla) do update
 set nome = excluded.nome,
     codigo_ibge = excluded.codigo_ibge;

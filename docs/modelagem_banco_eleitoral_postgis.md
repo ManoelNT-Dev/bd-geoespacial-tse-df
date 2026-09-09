@@ -54,6 +54,7 @@ Extensoes:
 | `Locais_Secao_Agrupadas por local_TRE_DF_2026.xlsx` | 614 linhas uteis + total | secoes por local em formato textual |
 | `Secoes_TRE-DF_2026.xlsx` | 6.961 linhas uteis + total | secoes principais oficiais TRE |
 | `geo_ra_centroid_atualizado.json` | 35 pontos | centroides de RA em EPSG:4326 |
+| `perfil_sociodemografico_ra_df_2025_estruturado.json` | 37 RAs | indicadores sociodemograficos por RA, com desdobramento proporcional de 26 de Setembro e Ponte Alta |
 | `shapefile_ras/regioes_administrativas.*` | 37 poligonos | limites de RA em SIRGAS 2000 / UTM 23S |
 | `votacao_secao_2022_DF.csv` | 1.238.611 linhas, 26 colunas | apenas piloto/modelagem da estrutura de votacao |
 
@@ -91,6 +92,7 @@ Tabelas de staging implementadas:
 - `stg.tre_locais_secao_agrupadas_2026_df`
 - `stg.tre_secoes_2026_df`
 - `stg.geo_ra_centroid_atualizado`
+- `stg.perfil_sociodemografico_ra_df_json`
 - `stg.ra_shapefile`
 - `stg.votacao_secao_2022_df`
 
@@ -693,6 +695,59 @@ Estado atual piloto 2022:
 - As medidas de votos sao derivadas de `fato.votacao_candidato_secao`.
 - `qt_aptos`, `qt_comparecimento` e `qt_abstencoes` ainda ficam nulos porque nao foram carregados de uma fonte especifica de apuracao/boletim.
 
+### 7.5 `dim.indicador_sociodemografico`
+
+Catalogo flexivel de indicadores sociodemograficos.
+
+Campos:
+
+- `indicador_id`
+- `codigo`
+- `grupo`
+- `subgrupo`
+- `metrica`
+- `descricao`
+- `unidade`
+
+Chave natural:
+
+- `codigo`
+
+### 7.6 `fato.sociodemografia_ra`
+
+Fato de indicadores sociodemograficos por RA.
+
+Grao:
+
+- `ra_id + indicador_id + ano_referencia`
+
+Campos principais:
+
+- `ra_id`
+- `indicador_id`
+- `ano_referencia`
+- `valor_num`
+- `percentual`
+- `fonte`
+- `metodo`
+- `source_file`
+
+Regras:
+
+- fonte estruturada: `perfil_sociodemografico_ra_df_2025_estruturado.json`;
+- `26 DE SETEMBRO` herda distribuicoes de `VICENTE PIRES`;
+- `PONTE ALTA` herda distribuicoes de `GAMA`;
+- `VICENTE PIRES` e `GAMA` sao ajustadas pela subtracao das populacoes das novas RAs;
+- quantidades sao ajustadas proporcionalmente e percentuais/medias sao preservados quando nao ha microdados.
+
+### 7.7 `fato.sociodemografia_ra_resumo`
+
+Texto analitico curto por RA e ano.
+
+Grao:
+
+- `ra_id + ano_referencia`
+
 ## 8. Views atuais e planejadas
 
 ### 8.1 View atual
@@ -978,16 +1033,21 @@ Scripts SQL:
 - `sql/02_dimensoes/05_dim_secao_eleitoral.sql`
 - `sql/02_dimensoes/06_dim_candidato.sql`
 - `sql/02_dimensoes/07_dim_perfil_eleitor.sql`
+- `sql/02_dimensoes/08_dim_municipio_recorte_pmb.sql`
 - `sql/03_geoespacial/01_ra_geometria.sql`
 - `sql/04_fatos/01_fato_eleitorado_perfil_secao.sql`
 - `sql/04_fatos/02_estrutura_votacao_2022.sql`
 - `sql/04_fatos/03_carga_piloto_votacao_2022.sql`
+- `sql/04_fatos/04_fato_eleitorado_perfil_municipio_pmb.sql`
+- `sql/04_fatos/05_fato_sociodemografia_ra.sql`
 
 Loaders:
 
 - `scripts/load_staging.py`
 - `scripts/load_large_staging.py`
 - `scripts/load_votacao_piloto.py`
+- `scripts/build_pmb_eleitorado_json.py`
+- `scripts/build_ra_sociodemografia_json.py`
 
 Testes SQL:
 

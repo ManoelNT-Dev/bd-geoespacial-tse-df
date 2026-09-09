@@ -234,6 +234,18 @@ create table if not exists stg.geo_ra_centroid_atualizado (
     row_number integer not null
 );
 
+create table if not exists stg.eleitorado_pmb_2026_json (
+    payload jsonb not null,
+    source_file text not null,
+    loaded_at timestamptz not null default now()
+);
+
+create table if not exists stg.perfil_sociodemografico_ra_df_json (
+    payload jsonb not null,
+    source_file text not null,
+    loaded_at timestamptz not null default now()
+);
+
 create table if not exists stg.ra_shapefile (
     ra_cira text,
     ra_codigo text,

@@ -137,6 +137,42 @@ Este arquivo registra a execucao de cada etapa do planejamento.
 - Divergencias encontradas: nenhuma na carga piloto; a carga completa de `votacao_secao_2022_DF.csv` nao ocorrera. A estrutura validada com 2022 sera reaproveitada para a carga completa futura dos dados de votacao 2026.
 - Decisao: Etapa 14 validada; carga completa futura sera de votacao 2026, quando a fonte estiver disponivel na mesma estrutura. Proximo desenvolvimento imediato: views/indices e consultas sobre a amostra piloto 2022 e fatos de eleitorado 2026.
 
+## Etapa 15 - Recorte PMB
+
+- Data: 2026-09-09
+- Scripts executados: `scripts/build_pmb_eleitorado_json.py`; validacoes locais com `python -m json.tool`, `python -m py_compile` e somas por municipio/perfil.
+- Resultado: `fontes/eleitorado_PMB_2026.json` foi regenerado com estrutura `pmb.municipios`, preservando `municipio_codigo` como codigo TSE, adicionando `municipio_codigo_tse`, `municipio_codigo_ibge`, fonte de populacao IBGE/SIDRA e perfis agregados por municipio a partir de `perfil_eleitor_secao_2026_GO.csv`.
+- Consultas manuais: validado total de 12 municipios, 759.538 eleitores, soma municipal de 759.538 e populacao IBGE/SIDRA 2025 de 1.362.821.
+- Divergencias encontradas: `fontes/` e ignorado pelo Git; o JSON gerado nao aparece em `git status`. O PDF de dicionario GO nao foi extraido localmente por falta de biblioteca/ferramenta PDF, mas o CSV tem a mesma estrutura operacional do staging de perfil ja modelado.
+- Decisao: PMB deve ser recorte de municipios goianos, nao RA. Foram criados `dim.municipio`, `dim.recorte_geografico`, `dim.recorte_municipio` e `fato.eleitorado_perfil_municipio`. Carga no Postgres e testes SQL ficaram como proximo passo.
+
+## Etapa 16 - Sociodemografia por RA
+
+- Data: 2026-09-09
+- Scripts executados: `scripts/build_ra_sociodemografia_json.py`; validacoes locais com `python -m json.tool`, `python -m py_compile` e checagens de fechamento.
+- Resultado: criado `fontes/perfil_sociodemografico_ra_df_2025_estruturado.json` com 37 RAs e apenas indicadores sociodemograficos: populacao/raca-cor, religiao, renda, animais de estimacao e perfil resumido. Campos eleitorais do arquivo original foram removidos do estruturado porque o banco ja totaliza eleitorado pela modelagem existente.
+- Consultas manuais: validado que nenhuma RA do JSON estruturado contem `totais` ou `perfil`; populacao das 37 RAs fecha no total oficial de 2.982.816.
+- Divergencias encontradas: o arquivo original traz 35 registros de RA somando 2.861.057, mas o cadastro oficial considerado no projeto tem 37 RAs e o proprio arquivo informa total oficial global de 2.982.816. A decisao revisada foi usar 2.982.816 como total oficial e ratear a diferenca proporcionalmente nas RAs sem populacao fixada por desdobramento.
+- Decisao: `26 DE SETEMBRO` herdou perfil proporcional de `VICENTE PIRES` com populacao 29.394; `PONTE ALTA` herdou perfil proporcional de `GAMA` com populacao 45.452. `VICENTE PIRES` foi ajustada para 75.668 e `GAMA` para 88.496. A diferenca remanescente foi rateada nas outras 33 RAs para fechar o total oficial. Foram criadas `dim.indicador_sociodemografico`, `fato.sociodemografia_ra` e `fato.sociodemografia_ra_resumo`. Carga no Postgres e testes SQL ficaram como proximo passo.
+
+## Encerramento da sessao - PMB e sociodemografia
+
+- Data: 2026-09-09
+- Scripts executados: `python scripts\build_ra_sociodemografia_json.py`, `python -m py_compile scripts\build_ra_sociodemografia_json.py` e checagem local com `python -X utf8`.
+- Resultado: documentacao de retomada atualizada em `docs/resumo_contexto_proxima_sessao.md`; planejamento, diario e validacoes manuais alinhados com a regra oficial de 37 RAs.
+- Consultas manuais: validado localmente que o JSON estruturado tem 37 RAs, total global 2.982.816, soma das RAs 2.982.816, `adjusted_count = 33` e populacoes fixas `GAMA = 88496`, `VICENTE PIRES = 75668`, `26 DE SETEMBRO = 29394`, `PONTE ALTA = 45452`.
+- Divergencias encontradas: nenhuma nova; permanece documentado que o arquivo original tinha 35 registros de RA, mas o projeto considera 37 RAs oficiais.
+- Decisao: encerrar a sessao com Etapas 15 e 16 implementadas em arquivos e validadas localmente; na proxima sessao, executar carga no PostgreSQL, criar testes SQL especificos e validar `aux.qualidade_dado`.
+
+## Testes de carga no conteiner - PMB e sociodemografia
+
+- Data: 2026-09-09
+- Scripts executados: `docker compose up -d`, `pg_isready`, DDLs de staging, `scripts/load_staging.py`, `scripts/load_large_staging.py --include-pmb-go`, `sql/02_dimensoes/01_dim_uf.sql`, `sql/02_dimensoes/07_dim_perfil_eleitor.sql`, `sql/02_dimensoes/08_dim_municipio_recorte_pmb.sql`, `sql/04_fatos/04_fato_eleitorado_perfil_municipio_pmb.sql`, `sql/04_fatos/05_fato_sociodemografia_ra.sql`, `scripts/load_votacao_piloto.py`, `sql/04_fatos/03_carga_piloto_votacao_2022.sql` e suite `tests/sql/*.sql`.
+- Resultado: cargas PMB e sociodemografia executadas no PostgreSQL; suite SQL `00` a `14` retornou zero divergencias.
+- Consultas manuais: PMB ficou com 12 municipios, recorte `PMB` com 12 municipios, `fato.eleitorado_perfil_municipio` com 34.927 linhas e 759.538 eleitores. Sociodemografia ficou com 37 RAs, 592 indicadores, 37 resumos e populacoes fixas conferidas.
+- Divergencias encontradas: a primeira execucao da fato PMB falhou porque o CTE de qualidade agrupava pelo alias `perfil_hash`; corrigido para agrupar explicitamente pelos campos de perfil. A primeira carga de sociodemografia casou apenas 26 RAs por acentuacao corrompida nos nomes; corrigido para priorizar `ra_codigo` e usar nome normalizado como fallback. `load_large_staging.py --include-pmb-go` truncava a staging de votacao quando `--include-votacao` nao era informado; corrigido para nao tocar em `stg.votacao_secao_2022_df` sem autorizacao explicita.
+- Decisao: Etapas 15 e 16 passam a estar validadas no banco. Foram criados `tests/sql/13_pmb_test.sql` e `tests/sql/14_sociodemografia_ra_test.sql`; `tests/sql/10_perfil_eleitor_test.sql` foi atualizado para `dim.perfil_eleitor = 13628` apos incorporar GO.
+
 ## Modelo de registro para proximas etapas
 
 ```md

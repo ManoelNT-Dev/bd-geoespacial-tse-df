@@ -28,6 +28,12 @@ PROFILE_LOAD = {
     "encoding": "latin-1",
 }
 
+PROFILE_PMB_GO_LOAD = {
+    "table": "stg.perfil_eleitor_secao_2026_go",
+    "file": "perfil_eleitor_secao_2026_GO.csv",
+    "encoding": "latin-1",
+}
+
 VOTACAO_LOAD = {
     "table": "stg.votacao_secao_2022_df",
     "file": "votacao_secao_2022_DF.csv",
@@ -84,6 +90,11 @@ def parse_args() -> argparse.Namespace:
         help="Carrega votacao_secao_2022_DF.csv. Usar somente com autorizacao explicita.",
     )
     parser.add_argument(
+        "--include-pmb-go",
+        action="store_true",
+        help="Carrega perfil_eleitor_secao_2026_GO.csv para composicao do recorte PMB.",
+    )
+    parser.add_argument(
         "--no-truncate",
         action="store_true",
         help="Nao truncar tabelas antes da carga.",
@@ -96,10 +107,12 @@ def main() -> None:
     loads = [PROFILE_LOAD]
     truncate_targets = [PROFILE_LOAD["table"]]
 
+    if args.include_pmb_go:
+        loads.append(PROFILE_PMB_GO_LOAD)
+        truncate_targets.append(PROFILE_PMB_GO_LOAD["table"])
+
     if args.include_votacao:
         loads.append(VOTACAO_LOAD)
-        truncate_targets.append(VOTACAO_LOAD["table"])
-    elif not args.no_truncate:
         truncate_targets.append(VOTACAO_LOAD["table"])
 
     loaded_counts = []
@@ -115,6 +128,9 @@ def main() -> None:
 
     if not args.include_votacao:
         print("stg.votacao_secao_2022_df: carga nao executada por falta de autorizacao explicita")
+
+    if not args.include_pmb_go:
+        print("stg.perfil_eleitor_secao_2026_go: carga nao executada; use --include-pmb-go")
 
 
 if __name__ == "__main__":
