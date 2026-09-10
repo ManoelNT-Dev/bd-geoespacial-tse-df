@@ -941,12 +941,18 @@ Objetivo: preparar o banco para consulta interativa.
 
 Observacao: esta etapa pode avancar antes da carga completa de votacao 2026, usando a amostra piloto 2022 da ZE 20 e os fatos completos de eleitorado 2026.
 
+Documento consolidado da etapa:
+
+- `docs/views_materializacoes_indices.md`
+
+Esse documento passa a ser a referencia operacional para contratos de consumo, materialized views, views simples, indices recomendados, ordem de implementacao e testes minimos. Ele incorpora a especificacao `fontes/especificacao-tecnica-painel-eleitoral.md` e ajusta o desenho ao estado atual do banco: 37 RAs, PMB como recorte de municipios e votacao 2022 restrita ao piloto tecnico.
+
 Contexto de consumo futuro:
 
 - A especificacao `fontes/especificacao-tecnica-painel-eleitoral.md` indica que as views devem atender paineis de mapa, KPIs, rankings, Pareto, heatmap, barras empilhadas, tabelas analiticas e drill-down.
 - A hierarquia principal de navegacao sera `DF -> RA -> local de votacao -> secao`, com filtros por eleicao, cargo, turno, candidato/votavel, lider, margem, busca textual e Pareto.
-- Os paineis de resultados gerais precisam de total bruto, votos validos, brancos, nulos, top candidatos, lider por RA/local/secao, segundo colocado, margem em votos e percentual, regioes competitivas e cobertura de zonas/locais/secoes.
-- Os paineis candidato-especificos precisam de votos do candidato, percentual no nivel filtrado, percentual no total, posicao/ranking, top2 comparativo, Pareto 80%, vitorias e zeros por RA/local/secao.
+- Os paineis de resultados gerais precisam de total bruto, votos validos, brancos, nulos, TOP 5 por RA/local/secao e cobertura de zonas/locais/secoes. Lider, segundo colocado, margem em votos/percentual e regioes competitivas serao derivados no front-end a partir do TOP 5.
+- Os paineis candidato-especificos precisam de votos do candidato, percentual no nivel filtrado, percentual no total, posicao/ranking, Pareto 80%, vitorias e zeros por RA/local/secao.
 - O painel de perfil do eleitor precisa de agregacoes por RA/local/secao e dimensao demografica, com dominante por genero, faixa etaria, estado civil, escolaridade e demais atributos disponiveis.
 - As respostas futuras devem se aproximar dos formatos atuais dos JSONs legados para reduzir refatoracao do frontend.
 
@@ -960,26 +966,31 @@ Entregaveis:
 Views recomendadas:
 
 - `fato.vw_votacao_drilldown`
+- `fato.mv_votacao_nivel`
 - `fato.vw_votacao_resultado_nivel`
-- `fato.vw_votacao_ra_candidato`
-- `fato.vw_votacao_local_candidato`
-- `fato.vw_votacao_secao_candidato`
+- `fato.mv_votacao_top5`
 - `fato.vw_votacao_rank_pareto`
-- `fato.vw_votacao_top2_margem`
+- `fato.vw_votacao_top5`
 - `fato.vw_votacao_heatmap_top5`
 - `fato.vw_votacao_stacked_ra_top5`
 - `fato.vw_vitorias_zeros_votavel`
+- `fato.mv_eleitorado_perfil_nivel`
 - `fato.vw_eleitorado_perfil_ra`
 - `fato.vw_eleitorado_perfil_local`
 - `fato.vw_eleitorado_perfil_secao`
-- `fato.vw_eleitorado_dominante_ra`
+- `fato.vw_eleitorado_dominante_nivel`
+- `fato.vw_sociodemografia_ra_pivot`
+- `fato.vw_ra_analitica`
 - `geo.vw_ra_mapa`
 - `geo.vw_local_votacao_mapa`
+- `geo.vw_secao_mapa`
+- `fato.mv_eleitorado_pmb_perfil_municipio`
+- `fato.vw_eleitorado_pmb_resumo`
 
 Contratos minimos de colunas:
 
 - Views de resultado por nivel: `eleicao_id`, `ano`, `turno`, `cd_eleicao`, `cargo_id`, `cd_cargo`, `ds_cargo`, `nivel`, `ra_id`, `ra_codigo`, `ra_nome`, `local_id`, `nr_local_votacao`, `local_votacao`, `secao_id`, `nr_zona`, `nr_secao`, `votavel_id`, `nr_votavel`, `nm_votavel`, `tipo_votavel`, `partido_id`, `sg_partido`, `qt_votos`, `votos_validos_nivel`, `percentual_no_nivel`, `percentual_no_total`, `ranking`, `cum_pct`, `dentro_pareto80`.
-- Views de top2/margem: chaves do nivel, `lider_nr_votavel`, `lider_nm_votavel`, `lider_votos`, `lider_percentual`, `segundo_nr_votavel`, `segundo_nm_votavel`, `segundo_votos`, `margem_votos`, `margem_percentual`, `tipo_regiao`.
+- Views de TOP 5: chaves do nivel, votavel, `ranking_top5`, votos, percentuais e cobertura. TOP 2/margem nao deve ser materializado no banco; o front-end calcula a partir de `ranking_top5 in (1, 2)`.
 - Views geograficas: chaves do nivel, nome, endereco quando aplicavel, latitude, longitude, `geom`, totais de votos/eleitores e metricas de intensidade para mapa.
 - Views de eleitorado: chaves de RA/local/secao, dimensao, codigo, descricao, quantidade, percentual e campos auxiliares para identificar categoria dominante.
 
@@ -1227,7 +1238,7 @@ Conteineres
   -> Backup / restore
 ```
 
-## Estado de encerramento em 2026-09-09
+## Estado de encerramento em 2026-09-10
 
 - Etapas 0 a 14 foram executadas no banco e validadas com testes SQL existentes.
 - Etapa 15 foi implementada, carregada no PostgreSQL e validada por `tests/sql/13_pmb_test.sql`.
@@ -1235,7 +1246,30 @@ Conteineres
 - Regra final de RA: o numero oficial considerado no projeto e 37. `26 DE SETEMBRO` e `PONTE ALTA` sao novas RAs.
 - Regra final de populacao sociodemografica: total oficial DF 2.982.816; `26 DE SETEMBRO = 29394`, `PONTE ALTA = 45452`, `VICENTE PIRES = 75668`, `GAMA = 88496`; diferenca remanescente rateada nas outras 33 RAs.
 - Os dados eleitorais continuam totalizados pela modelagem existente; o JSON sociodemografico estruturado nao deve carregar `totais` nem `perfil` eleitoral.
-- Proximo passo operacional: implementar views/indices de consulta, consolidar qualidade automatizada e criar rotina unica de execucao das cargas/testes.
+- Planejamento da Etapa 18 foi consolidado em `docs/views_materializacoes_indices.md`, a partir da especificacao tecnica do painel e da implementacao atual.
+- Planejamento expandido da Etapa 18 tambem cobre catalogo/cobertura, territorio unificado RA/municipio, recortes expandidos, vizinhanca espacial, segmentacao DF/PMB, percentis sociodemograficos, resultado por partido/coligacao, comparativos historicos, candidato enriquecido, busca global, cache JSON opcional e views operacionais.
+- Consistencia TRE/TSE validada: referencia oficial TRE 2026 e 614 locais, 6.961 secoes, 2.253.238 aptos, 308.799 nao aptos e 2.562.037 total. Cobertura ampliada CSV TSE 2026 e 622 pares `zona + local`, 7.050 secoes e 2.253.132 aptos.
+- O numero `641` nao e total de locais nas bases carregadas; aparece como numero de secao em registros de fonte.
+- Contagens globais de `dim.local_votacao` e `dim.secao_eleitoral` incluem piloto 2022; filtrar por `eleicao_id`/ano.
+- Etapa 18.1 concluida: `sql/05_views/01_indices_consulta.sql` cria `pg_trgm`, 30 indices de consulta e executa `analyze`; `tests/sql/15_views_indices_test.sql` valida a extensao e os indices. Suite `tests/sql/00` a `15` passou com zero divergencias.
+- Etapa 18.2 concluida: `sql/05_views/02_votacao_materializacoes.sql` cria `fato.mv_votacao_nivel` e `fato.mv_votacao_top5`; `tests/sql/16_votacao_materializacoes_test.sql` valida materialized views, indices e fechamentos do piloto 2022. Suite `tests/sql/00` a `16` passou com zero divergencias.
+- Etapa 18.3 concluida: `sql/05_views/03_votacao_views.sql` cria views de resultado por nivel, top5, ranking/Pareto, vitorias/zeros e top5 por RA; `tests/sql/17_votacao_views_test.sql` valida views e fechamentos do piloto 2022. Suite `tests/sql/00` a `17` passou com zero divergencias.
+- Etapa 18.4 concluida: `sql/05_views/04_eleitorado_views.sql` cria `fato.mv_eleitorado_perfil_nivel` e views de perfil/dominancia; `tests/sql/18_eleitorado_views_test.sql` valida fechamentos de eleitorado 2026. Suite `tests/sql/00` a `18` passou com zero divergencias.
+- Ajuste de contrato concluido: manter apenas `TOP 5` em materializacoes, views e indices de votacao. `TOP 2`, margem, lider/segundo e competitividade serao calculados no front-end a partir de `ranking_top5`. Objetos `top2` no schema `fato`: 0.
+- Proximo passo operacional: implementar `sql/05_views/05_sociodemografia_views.sql`, depois views de geografia/PMB, consolidar qualidade automatizada e criar rotina unica de execucao das cargas/testes.
+
+## Ordem imediata da proxima sessao
+
+1. Subir Docker e validar `pg_isready`.
+2. Conferir `git status --short` e preservar alteracoes pendentes.
+3. Rodar suite `tests/sql/00` a `18`.
+4. Implementar `sql/05_views/05_sociodemografia_views.sql`.
+5. Criar `tests/sql/19_sociodemografia_views_test.sql`.
+6. Implementar `sql/05_views/06_geo_views.sql`.
+7. Criar teste SQL para views geograficas.
+8. Implementar `sql/05_views/07_pmb_views.sql`.
+9. Criar teste SQL para views PMB.
+10. Rodar `analyze` e `explain analyze` nas consultas principais.
 
 ## Criterio final de conclusao
 

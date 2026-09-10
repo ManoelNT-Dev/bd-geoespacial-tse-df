@@ -655,7 +655,7 @@ Indices atuais:
 - `partido_id`
 - `votavel_id`
 
-Indices recomendados para Etapa 16:
+Indices recomendados para Etapa 18:
 
 - `eleicao_id + cargo_id + votavel_id`
 - `eleicao_id + cargo_id + ra_id`
@@ -771,33 +771,40 @@ Campos principais:
 - candidato nominal quando existir;
 - `qt_votos`.
 
-### 8.2 Views planejadas para Etapa 16
+### 8.2 Views planejadas para Etapa 18
 
-A especificacao `fontes/especificacao-tecnica-painel-eleitoral.md` indica consumo futuro por mapas, KPIs, rankings/Pareto, top2, margem, heatmap, barras empilhadas, tabelas analiticas e drill-down.
+A especificacao `fontes/especificacao-tecnica-painel-eleitoral.md` indica consumo futuro por mapas, KPIs, rankings/Pareto, TOP 5, heatmap, barras empilhadas, tabelas analiticas e drill-down. Visualizacoes TOP 2 e margem serao calculadas no front-end a partir do TOP 5.
+
+O contrato detalhado de views, materializacoes e indices foi consolidado em `docs/views_materializacoes_indices.md`. Esse documento ajusta a especificacao legada ao estado atual do banco: 37 RAs oficiais, PMB como recorte de municipios goianos e votacao 2022 apenas como piloto tecnico.
 
 Views recomendadas:
 
 - `fato.vw_votacao_resultado_nivel`
-- `fato.vw_votacao_ra_candidato`
-- `fato.vw_votacao_local_candidato`
-- `fato.vw_votacao_secao_candidato`
+- `fato.mv_votacao_nivel`
+- `fato.mv_votacao_top5`
 - `fato.vw_votacao_rank_pareto`
-- `fato.vw_votacao_top2_margem`
+- `fato.vw_votacao_top5`
 - `fato.vw_votacao_heatmap_top5`
 - `fato.vw_votacao_stacked_ra_top5`
 - `fato.vw_vitorias_zeros_votavel`
+- `fato.mv_eleitorado_perfil_nivel`
 - `fato.vw_eleitorado_perfil_ra`
 - `fato.vw_eleitorado_perfil_local`
 - `fato.vw_eleitorado_perfil_secao`
-- `fato.vw_eleitorado_dominante_ra`
+- `fato.vw_eleitorado_dominante_nivel`
+- `fato.vw_sociodemografia_ra_pivot`
+- `fato.vw_ra_analitica`
 - `geo.vw_ra_mapa`
 - `geo.vw_local_votacao_mapa`
+- `geo.vw_secao_mapa`
+- `fato.mv_eleitorado_pmb_perfil_municipio`
+- `fato.vw_eleitorado_pmb_resumo`
 
 Contratos minimos:
 
 - Views de resultado devem expor eleicao, cargo, nivel, RA, local, secao, votavel, partido, votos, votos validos do nivel, percentual no nivel e percentual no total.
 - Views de ranking devem expor `ranking`, `cum_pct` e `dentro_pareto80`.
-- Views de top2/margem devem expor lider, segundo colocado, margem em votos, margem percentual e classificacao de competitividade.
+- Views de TOP 5 devem expor `ranking_top5`, votos, percentuais e chaves territoriais. Lider, segundo colocado, margem em votos, margem percentual e classificacao de competitividade devem ser derivados no front-end.
 - Views geograficas devem expor latitude, longitude, geometria, intensidade e totais.
 - Views de eleitorado devem expor dimensao demografica, codigo, descricao, quantidade, percentual e categoria dominante quando aplicavel.
 
@@ -992,11 +999,11 @@ Com o estado atual, o banco suporta:
 - drill-down de votacao via `fato.vw_votacao_drilldown`;
 - cruzamentos iniciais de eleitorado 2026 com estrutura geografica/eleitoral.
 
-Com a Etapa 16, o banco deve passar a suportar tambem:
+Com a Etapa 18, o banco deve passar a suportar tambem:
 
 - KPIs de paineis eleitorais;
 - rankings e Pareto por RA/local/secao;
-- top2 e margem por nivel;
+- TOP 5 por nivel;
 - heatmap e barras empilhadas;
 - views geograficas para mapas;
 - tabelas analiticas combinando resultado e perfil do eleitorado.
@@ -1005,7 +1012,7 @@ Com a Etapa 16, o banco deve passar a suportar tambem:
 
 Pendencias conhecidas:
 
-- Criar views e materializacoes da Etapa 16.
+- Criar views e materializacoes da Etapa 18 conforme `docs/views_materializacoes_indices.md`.
 - Revisar indices voltados a consultas interativas.
 - Automatizar regras completas de qualidade na Etapa 17.
 - Criar scripts de backup/restore/reprocessamento na Etapa 18.
@@ -1016,7 +1023,7 @@ Pendencias conhecidas:
 Expansao prevista:
 
 - Quando a fonte de votacao 2026 estiver disponivel na mesma estrutura de `votacao_secao_2022_DF.csv`, criar staging/carga completa para 2026.
-- Reaproveitar `dim.votavel`, `fato.votacao_candidato_secao`, `fato.apuracao_secao` e views da Etapa 16.
+- Reaproveitar `dim.votavel`, `fato.votacao_candidato_secao`, `fato.apuracao_secao` e views da Etapa 18.
 - Adaptar carga para vincular votaveis 2026 a `dim.candidato` 2026 por `SQ_CANDIDATO` quando o identificador estiver presente.
 
 ## 15. Arquivos de implementacao
@@ -1040,6 +1047,7 @@ Scripts SQL:
 - `sql/04_fatos/03_carga_piloto_votacao_2022.sql`
 - `sql/04_fatos/04_fato_eleitorado_perfil_municipio_pmb.sql`
 - `sql/04_fatos/05_fato_sociodemografia_ra.sql`
+- `docs/views_materializacoes_indices.md`
 
 Loaders:
 

@@ -1,42 +1,56 @@
 # Resumo de contexto para proxima sessao
 
-Data de encerramento: 2026-09-09  
+Data de encerramento: 2026-09-10
 Workspace: `C:\Users\mnt50\DEV\code_teste_r2`  
 Projeto: banco eleitoral PostgreSQL/PostGIS para DF, PMB e indicadores sociodemograficos por RA.
 
 ## Objetivo
 
-Construir um banco relacional/geoespacial em PostgreSQL/PostGIS para inteligencia eleitoral no DF, com camadas `stg`, `dim`, `fato`, `geo` e `aux`. O desenho separa eleitorado, votacao, territorio, recortes metropolitanos e indicadores sociodemograficos. PMB e tratada como recorte de municipios goianos; RA e entidade territorial do DF.
+Construir um banco relacional/geoespacial em PostgreSQL/PostGIS para inteligencia eleitoral no DF, com camadas `stg`, `dim`, `fato`, `geo` e `aux`. A arquitetura separa fontes brutas, dimensoes conformadas, fatos eleitorais, geografia, recortes metropolitanos, sociodemografia e qualidade de dados. RA e entidade territorial do DF. PMB e recorte de municipios goianos, nao RA.
 
 ## Estado atual
 
-- Ha alteracoes pendentes versionaveis em SQL, scripts e docs. Nao reverter nada sem pedido explicito.
-- `fontes/` esta no `.gitignore`; JSONs gerados ali nao aparecem em `git status`.
-- Etapas 0 a 14 foram executadas no banco e validadas.
-- Etapas 15 e 16 foram implementadas, executadas no PostgreSQL e validadas com testes SQL proprios.
+- Branch: `main`.
+- Ultimo commit conhecido antes das alteracoes pendentes: `1254250 Versao - R4. PMB + SOCIODEMOGRAFIA`.
+- Existem alteracoes versionaveis pendentes em `docs/`, `sql/05_views/` e `tests/sql/`; nao reverter sem pedido explicito.
+- `fontes/` esta no `.gitignore`; JSONs derivados e CSVs fonte nao aparecem em `git status`.
+- Etapas 0 a 16 estao implementadas, carregadas no PostgreSQL e validadas.
+- Etapa 18 esta parcialmente implementada: indices, materializacoes/views de votacao e views de eleitorado DF.
+- Suite `tests/sql/00` a `18` passou com zero divergencias no encerramento.
+- Contrato revisado de votacao: o banco mantem apenas `TOP 5`; `TOP 2`, margem, lider/segundo e competitividade serao calculados no front-end a partir de `ranking_top5`.
 
-Arquivos novos ou relevantes:
+## Arquivos principais
+
+Documentacao:
+
+- `docs/resumo_contexto_proxima_sessao.md`
+- `docs/views_materializacoes_indices.md`
+- `docs/planejamento_implementacao_banco_eleitoral.md`
+- `docs/diario_implementacao.md`
+- `docs/validacoes_manuais.md`
+- `docs/modelagem_banco_eleitoral_postgis.md`
+- `docs/modelagem_pmb.md`
+- `docs/modelo_arquivo_sociodemografia_ra_df.md`
+
+Implementacao:
 
 - `scripts/build_pmb_eleitorado_json.py`
 - `scripts/build_ra_sociodemografia_json.py`
 - `scripts/load_staging.py`
 - `scripts/load_large_staging.py`
-- `sql/01_staging/01_staging_small_medium.sql`
-- `sql/01_staging/02_staging_large.sql`
-- `sql/02_dimensoes/01_dim_uf.sql`
-- `sql/02_dimensoes/07_dim_perfil_eleitor.sql`
-- `sql/02_dimensoes/08_dim_municipio_recorte_pmb.sql`
-- `sql/04_fatos/04_fato_eleitorado_perfil_municipio_pmb.sql`
-- `sql/04_fatos/05_fato_sociodemografia_ra.sql`
-- `docs/modelagem_pmb.md`
-- `docs/modelo_arquivo_sociodemografia_ra_df.md`
+- `scripts/load_votacao_piloto.py`
+- `sql/00_extensions_schemas.sql`
+- `sql/01_staging/*.sql`
+- `sql/02_dimensoes/*.sql`
+- `sql/03_geoespacial/01_ra_geometria.sql`
+- `sql/04_fatos/*.sql`
+- `sql/05_views/01_indices_consulta.sql`
+- `sql/05_views/02_votacao_materializacoes.sql`
+- `sql/05_views/03_votacao_views.sql`
+- `sql/05_views/04_eleitorado_views.sql`
+- `tests/sql/00` a `18`
 
-Arquivos gerados em `fontes/`:
-
-- `fontes/eleitorado_PMB_2026.json`
-- `fontes/perfil_sociodemografico_ra_df_2025_estruturado.json`
-
-## Ambiente
+## Ambiente e conteineres
 
 - Docker Compose com servico `db`.
 - Imagem: `postgis/postgis:16-3.5`.
@@ -46,150 +60,12 @@ Arquivos gerados em `fontes/`:
 - Porta local: `5432`.
 - Volume persistente: `code_teste_r2_postgres_data`.
 - Montagens readonly: `./fontes:/fontes:ro`, `./sql:/sql:ro`, `./tests:/tests:ro`.
-- Extensoes usadas: `postgis`, `unaccent`.
+- Extensoes usadas: `postgis`, `unaccent`, `pg_trgm`.
 
-## Arquitetura implementada
-
-Dimensoes:
-
-- `dim.uf`: inclui `DF` e `GO`.
-- `dim.eleicao`: eleicao oficial DF 2026 e piloto tecnico 2022.
-- `dim.regiao_administrativa`: 37 RAs oficiais do DF, incluindo `26 DE SETEMBRO` e `PONTE ALTA`.
-- `geo.ra_geometria`: geometrias das 37 RAs; centroides calculados quando ausentes ou invalidos.
-- `dim.zona_eleitoral`, `dim.local_votacao`, `dim.secao_eleitoral`.
-- `dim.cargo_eleitoral`, `dim.partido_politico`, `dim.federacao`, `dim.coligacao`, `dim.candidato`, `dim.votavel`.
-- `dim.perfil_eleitor`: combinacoes demograficas eleitorais, preparada para DF e GO.
-- `dim.municipio`, `dim.recorte_geografico`, `dim.recorte_municipio`: suporte ao recorte PMB.
-- `dim.indicador_sociodemografico`: catalogo flexivel de indicadores por RA.
-
-Fatos:
-
-- `fato.eleitorado_perfil_secao`: eleitorado DF 2026 por secao e perfil.
-- `fato.votacao_candidato_secao`: votacao piloto 2022 da ZE 20.
-- `fato.apuracao_secao`: agregados da votacao piloto 2022.
-- `fato.eleitorado_perfil_municipio`: eleitorado PMB/GO 2026 por municipio e perfil.
-- `fato.sociodemografia_ra`: indicadores sociodemograficos por RA, ano e indicador.
-- `fato.sociodemografia_ra_resumo`: textos resumidos por RA/ano.
-
-View:
-
-- `fato.vw_votacao_drilldown`: funciona para a amostra piloto 2022.
-
-## Fontes processadas
-
-DF eleitoral:
-
-- `consulta_cand_2026_DF.csv`: 661 linhas.
-- `consulta_cand_complementar_2026_DF.csv`: 661 linhas.
-- `eleitorado_local_votacao_2026_DF.csv`: 7.050 linhas.
-- `perfil_eleitor_secao_2026_DF.csv`: 1.233.369 linhas.
-- Planilhas TRE de locais, locais/secao, agrupadas e secoes.
-- `geo_ra_centroid_atualizado.json`: 35 centroides; 34 aproveitados, 1 substituido por centroide calculado.
-- `shapefile_ras/regioes_administrativas.*`: 37 poligonos.
-- `votacao_secao_2022_DF.csv`: usado somente como piloto tecnico ZE 20.
-
-PMB/GO:
-
-- `fontes/eleitorado_PMB_2026.json`: atualizado pelo script.
-- `fontes/perfil_eleitor_secao_2026_GO.csv`: CSV TSE GO em Latin-1, usado para agregar os 12 municipios da PMB.
-- Populacao municipal: IBGE/SIDRA tabela 6579, variavel 9324, periodo 2025, referencia 2025-07-01.
-
-Sociodemografia RA:
-
-- Original: `fontes/perfil_eleitorado_df_2025_consolidado_12jan2026.json`.
-- Estruturado: `fontes/perfil_sociodemografico_ra_df_2025_estruturado.json`.
-- O estruturado contem apenas sociodemografia: populacao/raca-cor, religiao, renda, animais de estimacao e resumo.
-- Campos eleitorais do original (`totais`, `perfil` e distribuicoes eleitorais) foram removidos porque o banco ja totaliza eleitorado pela modelagem existente.
-
-## Regras criticas
-
-- Nao carregar `votacao_secao_2022_DF.csv` completo. O arquivo 2022 e apenas piloto/modelagem. A carga completa futura deve ser dos dados de votacao 2026 quando existirem.
-- `local_votacao` usa chave natural `eleicao_id + uf_id + nr_zona + nr_local_votacao`; `nr_local_votacao` sozinho nao identifica local fisico.
-- `secao_eleitoral` usa chave natural `eleicao_id + uf_id + nr_zona + nr_secao`.
-- Secao agregada herda o local da secao principal indicada em `NR_SECAO_PRINCIPAL`.
-- CPF de candidato nao e persistido aberto; `dim.candidato` usa `cpf_hash`.
-- PMB e recorte de municipios goianos, nao RA.
-- Sociodemografia de RA fica separada de eleitorado/votacao e se conecta ao restante por `ra_id`.
-- O numero oficial de RAs considerado no projeto e 37.
-- `26 DE SETEMBRO` e `PONTE ALTA` sao novas RAs.
-- `26 DE SETEMBRO` herda proporcionalmente indicadores de `VICENTE PIRES`.
-- `PONTE ALTA` herda proporcionalmente indicadores de `GAMA`.
-- Populacoes fixas apos desdobramento: `26 DE SETEMBRO` 29.394; `PONTE ALTA` 45.452; `VICENTE PIRES` 75.668; `GAMA` 88.496.
-- O total oficial de populacao DF usado na sociodemografia e 2.982.816. As quatro RAs do desdobramento ficam fixas e a diferenca remanescente e rateada proporcionalmente nas outras 33 RAs.
-- Quantidades sociodemograficas sao ajustadas por fator populacional e arredondadas para fechamento; percentuais e medias sao preservados quando nao ha microdados.
-
-## Contagens validadas
-
-DF eleitorado:
-
-- `dim.regiao_administrativa`: 37 RAs.
-- `geo.ra_geometria`: 37 geometrias.
-- Centroides: 34 `geojson`, 3 `calculado_shapefile` (`VARJAO`, `26 DE SETEMBRO`, `PONTE ALTA`).
-- `dim.local_votacao`: 622 pares `zona + local`; 614 principais TRE; 8 adicionais CSV; 3 sem geometria.
-- `dim.secao_eleitoral`: 7.050 secoes; 6.961 principais TRE; 81 agregadas; 8 adicionais CSV.
-- `dim.candidato`: 661 candidatos.
-- `dim.perfil_eleitor`: 8.468 perfis antes da carga GO; pode aumentar apos `--include-pmb-go`.
-- `fato.eleitorado_perfil_secao`: 1.219.951 linhas; `source_row_count` soma 1.233.369; total 2.253.132 eleitores.
-
-Piloto votacao 2022:
-
-- ZE 20 carregada com 44.464 linhas.
-- 18 locais, 219 secoes, 838 votaveis.
-- Votos: nominal 228.436, legenda 4.604, branco 16.142, nulo 11.822.
-
-PMB:
-
-- 12 municipios.
-- 759.538 eleitores.
-- Populacao IBGE/SIDRA 2025: 1.362.821.
-- `perfil_geral` do JSON PMB fecha 759.538 em todas as dimensoes.
-
-Sociodemografia RA:
-
-- JSON estruturado: 37 RAs.
-- Populacao por RA fecha 2.982.816.
-- Nenhuma RA do JSON estruturado contem `totais` ou `perfil`.
-- Divergencia documentada: o arquivo original trazia 35 registros de RA somando 2.861.057, mas o cadastro oficial considerado no projeto tem 37 RAs e o total oficial global e 2.982.816.
-- Valores fixos validados: `GAMA = 88496`, `VICENTE PIRES = 75668`, `26 DE SETEMBRO = 29394`, `PONTE ALTA = 45452`.
-- `adjusted_count = 33` para rateio proporcional nas demais RAs.
-
-## O que funciona
-
-- Scripts Python compilam.
-- JSON PMB e JSON sociodemografico estruturado foram gerados e validados localmente.
-- `scripts/load_staging.py` carrega os JSONs PMB e sociodemografico em staging.
-- `scripts/load_large_staging.py` aceita `--include-pmb-go` para carregar o CSV GO.
-- SQLs novos de PMB e sociodemografia foram criados.
-- O modelo evita misturar municipio PMB com RA do DF.
-- O arquivo sociodemografico estruturado nao duplica dados eleitorais.
-
-## O que esta incompleto
-
-- Falta consolidar as novas validacoes PMB/sociodemografia no fluxo padrao de CI ou script unico de testes.
-- Views finais de painel ainda nao foram implementadas, exceto `fato.vw_votacao_drilldown`.
-- Falta consolidar indices finais, qualidade automatizada completa, backup e restore.
-
-## Como retomar sem perder contexto
+Reiniciar conteineres:
 
 ```powershell
 cd C:\Users\mnt50\DEV\code_teste_r2
-Get-Content .\docs\resumo_contexto_proxima_sessao.md -Raw
-Get-Content .\docs\modelagem_banco_eleitoral_postgis.md -Raw
-Get-Content .\docs\modelagem_pmb.md -Raw
-Get-Content .\docs\modelo_arquivo_sociodemografia_ra_df.md -Raw
-Get-Content .\docs\planejamento_implementacao_banco_eleitoral.md -Raw
-Get-Content .\docs\validacoes_manuais.md -Raw
-git status --short
-git branch --show-current
-git log --oneline -3
-```
-
-## Como reiniciar os conteineres
-
-```powershell
-cd C:\Users\mnt50\DEV\code_teste_r2
-docker --version
-docker compose version
 docker compose up -d
 docker compose ps
 docker compose exec -T db pg_isready -U eleitoral_app -d eleitoral
@@ -221,49 +97,212 @@ docker compose down -v
 
 `docker compose down -v` apaga o volume persistente `code_teste_r2_postgres_data`.
 
-## Proximos passos exatos
+## Arquitetura implementada
 
-1. Subir o Docker e conferir `pg_isready`.
-2. Conferir `git status --short` e preservar alteracoes pendentes.
-3. Regenerar JSONs derivados se `fontes/` tiver mudado:
+Schemas:
+
+- `stg`: staging bruto.
+- `dim`: dimensoes conformadas.
+- `fato`: fatos, materialized views e views analiticas.
+- `geo`: geometrias.
+- `aux`: qualidade, conciliacao e apoio.
+
+Dimensoes principais:
+
+- `dim.uf`: `DF` e `GO`.
+- `dim.eleicao`: eleicao DF 2026 e piloto tecnico 2022.
+- `dim.regiao_administrativa`: 37 RAs oficiais do DF, incluindo `26 DE SETEMBRO` e `PONTE ALTA`.
+- `geo.ra_geometria`: 37 geometrias; centroides de `VARJAO`, `26 DE SETEMBRO` e `PONTE ALTA` calculados.
+- `dim.zona_eleitoral`, `dim.local_votacao`, `dim.secao_eleitoral`.
+- `dim.cargo_eleitoral`, `dim.partido_politico`, `dim.federacao`, `dim.coligacao`, `dim.candidato`, `dim.votavel`.
+- `dim.perfil_eleitor`: 13.628 combinacoes demograficas apos incorporar DF e GO/PMB.
+- `dim.municipio`, `dim.recorte_geografico`, `dim.recorte_municipio`: suporte PMB.
+- `dim.indicador_sociodemografico`: catalogo flexivel de indicadores por RA.
+
+Fatos:
+
+- `fato.eleitorado_perfil_secao`: eleitorado DF 2026 por secao e perfil.
+- `fato.votacao_candidato_secao`: votacao piloto 2022 da ZE 20.
+- `fato.apuracao_secao`: agregados da votacao piloto 2022.
+- `fato.eleitorado_perfil_municipio`: eleitorado PMB/GO 2026 por municipio e perfil.
+- `fato.sociodemografia_ra`: indicadores sociodemograficos por RA/ano/indicador.
+- `fato.sociodemografia_ra_resumo`: textos resumidos por RA/ano.
+
+Views/materializacoes implementadas:
+
+- `fato.vw_votacao_drilldown`: operacional para a amostra piloto 2022.
+- `fato.mv_votacao_nivel`: 55.219 linhas agregadas por nivel/votavel no piloto 2022.
+- `fato.mv_votacao_top5`: 4.779 linhas de ranking TOP 5 no piloto 2022.
+- `fato.vw_votacao_resultado_nivel`.
+- `fato.vw_votacao_top5`.
+- `fato.vw_votacao_rank_pareto`.
+- `fato.vw_vitorias_zeros_votavel`.
+- `fato.vw_votacao_heatmap_top5`.
+- `fato.vw_votacao_stacked_ra_top5`.
+- `fato.mv_eleitorado_perfil_nivel`: 346.143 linhas em formato longo por nivel e dimensao demografica.
+- `fato.vw_eleitorado_perfil_ra`.
+- `fato.vw_eleitorado_perfil_local`.
+- `fato.vw_eleitorado_perfil_secao`.
+- `fato.vw_eleitorado_dominante_nivel`.
+
+Scripts de views/indices:
+
+- `sql/05_views/01_indices_consulta.sql`: `pg_trgm`, indices de consulta para votacao, eleitorado DF, sociodemografia, geografia, PMB, candidaturas, busca textual e staging grande; executa `analyze`.
+- `sql/05_views/02_votacao_materializacoes.sql`: `fato.mv_votacao_nivel` e `fato.mv_votacao_top5`; tambem remove objetos antigos `top2` se existirem.
+- `sql/05_views/03_votacao_views.sql`: views de resultado, top5, ranking/Pareto, vitorias/zeros, heatmap e stacked top5.
+- `sql/05_views/04_eleitorado_views.sql`: materializacao longa do perfil do eleitorado DF por RA/local/secao, views por nivel e dominante demografico. Usa `set enable_memoize = off` durante a materializacao por erro interno do planner observado no PostgreSQL.
+
+## Regras criticas
+
+- O numero oficial atual de RAs e 37. Toda especificacao nova deve considerar 37 RAs.
+- Referencias a 35 RAs em fontes legadas sao historico dos JSONs estaticos antigos, nao contrato novo.
+- `26 DE SETEMBRO` e `PONTE ALTA` devem aparecer em mapas, tabelas, perfil e sociodemografia quando a fonte permitir.
+- PMB e recorte de municipios goianos, nao RA.
+- Nao carregar `votacao_secao_2022_DF.csv` completo; 2022 e apenas piloto/modelagem.
+- `local_votacao` usa chave natural `eleicao_id + uf_id + nr_zona + nr_local_votacao`.
+- `secao_eleitoral` usa chave natural `eleicao_id + uf_id + nr_zona + nr_secao`.
+- Secao agregada herda o local da secao principal indicada em `NR_SECAO_PRINCIPAL`.
+- CPF aberto de candidato nao e persistido; `dim.candidato` usa `cpf_hash`.
+- Views territoriais devem carregar `eleicao_id` e, quando aplicavel, `ano`, `turno` e `cd_eleicao`, para nao misturar 2026 com piloto 2022.
+- Resumos PMB nao devem somar `pop_municipio` depois de join direto com fato de perfil; isso multiplica populacao pelo numero de perfis.
+- Executar `analyze` apos cargas grandes antes de confiar em `pg_stat_user_tables` ou planos de consulta.
+- Contrato de votacao: manter apenas `TOP 5` no banco. `TOP 2`, margem, lider/segundo e competitividade ficam no front-end.
+
+## Contagens validadas
+
+RAs/geografia:
+
+- `dim.regiao_administrativa`: 37 RAs.
+- `geo.ra_geometria`: 37 geometrias.
+- Centroides: 34 `geojson`, 3 `calculado_shapefile`.
+
+Locais/secoes 2026:
+
+- Oficiais TRE por `Locais_TRE_DF_2026.xlsx`: 614 locais, 6.961 secoes, 2.253.238 aptos, 308.799 nao aptos, 2.562.037 total.
+- CSV TSE `eleitorado_local_votacao_2026_DF.csv`: 622 pares `zona + local`, 7.050 secoes, 2.253.132 aptos.
+- Diferenca aptos TRE x CSV/perfil: 106, registrada como `divergencia_aptos_tre_csv`.
+- `dim.local_votacao` 2026: 622 locais, sendo 614 principais TRE e 8 adicionais CSV.
+- `dim.secao_eleitoral` 2026: 7.050 secoes, sendo 6.961 principais TRE, 7.042 confirmadas por TRE expandida, 81 agregadas CSV e 8 adicionais CSV.
+- `dim.local_votacao` total: 640 locais, pois inclui 622 de 2026 + 18 do piloto 2022.
+- `dim.secao_eleitoral` total: 7.269 secoes, pois inclui 7.050 de 2026 + 219 do piloto 2022.
+- O numero `641` nao fecha como total de locais nas bases carregadas; aparece como numero de secao em registros de fonte.
+
+Eleitorado DF:
+
+- `fato.eleitorado_perfil_secao`: 1.219.951 linhas; `source_row_count` soma 1.233.369; total 2.253.132 eleitores.
+- `fato.mv_eleitorado_perfil_nivel`: 346.143 linhas.
+- `vw_eleitorado_perfil_ra`: 1.951 linhas; 36 RAs identificadas e grupo de RA nula.
+- `vw_eleitorado_perfil_local`: 31.168 linhas; 614 locais com perfil.
+- `vw_eleitorado_perfil_secao`: 313.024 linhas; 7.042 secoes com perfil.
+- `vw_eleitorado_dominante_nivel`: 61.544 linhas.
+- A dimensao `genero` fecha 2.253.132 eleitores nos niveis RA, local e secao.
+- RA nula no perfil: 603 eleitores; `26 DE SETEMBRO` nao possui perfil territorial associado na fonte eleitoral carregada.
+
+Piloto votacao 2022:
+
+- ZE 20 com 44.464 linhas.
+- 18 locais, 219 secoes, 838 votaveis.
+- Votos: nominal 228.436, legenda 4.604, branco 16.142, nulo 11.822; total 261.004.
+- `fato.mv_votacao_nivel`: 55.219 linhas; preserva 261.004 votos em cada nivel.
+- `fato.mv_votacao_top5`: 4.779 linhas; 20 em `geral`, 20 em `ra`, 360 em `local`, 4.379 em `secao`; ranking maximo 5.
+- Objetos `top2` no schema `fato`: 0.
+- Indices `top2` no schema `fato`: 0.
+
+PMB:
+
+- 12 municipios.
+- `fato.eleitorado_perfil_municipio`: 34.927 linhas.
+- Eleitores PMB: 759.538.
+- Populacao IBGE/SIDRA 2025 PMB: 1.362.821.
+
+Sociodemografia RA:
+
+- JSON estruturado: 37 RAs.
+- `fato.sociodemografia_ra`: 592 indicadores.
+- `fato.sociodemografia_ra_resumo`: 37 resumos.
+- Populacao total DF: 2.982.816.
+- Fixos: `GAMA = 88496`, `VICENTE PIRES = 75668`, `26 DE SETEMBRO = 29394`, `PONTE ALTA = 45452`.
+- `adjusted_count = 33` para rateio proporcional nas demais RAs.
+
+Qualidade atual:
+
+- `divergencia_aptos_tre_csv`: 106 avisos.
+- `local_csv_sem_tre`: 8 avisos.
+- `secao_csv_sem_perfil`: 8 avisos.
+- `secao_csv_sem_tre`: 8 avisos.
+- `local_sem_coordenada`: 3 erros.
+- `nr_local_votacao_reutilizado_em_zonas`: 90 infos.
+
+## O que funciona
+
+- Docker/PostGIS sobe com persistencia.
+- Staging pequeno/medio e grande carregam.
+- Scripts Python compilam e geram JSON PMB/sociodemografia.
+- Modelagem DF 2026 de RAs, locais, secoes, candidatos e eleitorado por perfil esta carregada.
+- PMB esta carregada como recorte municipal.
+- Sociodemografia por RA esta carregada separadamente de eleitorado/votacao.
+- Votacao piloto 2022 ZE 20 esta carregada e validada.
+- Indices de consulta principais estao aplicados.
+- Materializacoes/views de votacao e eleitorado DF estao implementadas.
+- Suite SQL `00` a `18` passa com zero divergencias.
+
+## O que esta incompleto
+
+- `sql/05_views/05_sociodemografia_views.sql` ainda nao foi implementado.
+- `sql/05_views/06_geo_views.sql` ainda nao foi implementado.
+- `sql/05_views/07_pmb_views.sql` ainda nao foi implementado.
+- Expansoes opcionais `08_expansao_views.sql` e `09_expansao_materializacoes.sql` ainda nao foram implementadas.
+- Qualidade automatizada completa em `sql/99_qualidade/` ainda nao foi implementada.
+- Rotina unica de carga/testes ainda nao existe.
+- Backup/restore e procedimento de reprocessamento ainda nao foram testados/documentados em script.
+- Carga completa de votacao 2026 depende de fonte futura.
+
+## Como retomar sem perder contexto
 
 ```powershell
-python scripts\build_pmb_eleitorado_json.py
-python scripts\build_ra_sociodemografia_json.py
+cd C:\Users\mnt50\DEV\code_teste_r2
+git status --short
+git branch --show-current
+git log --oneline -3
+Get-Content .\docs\resumo_contexto_proxima_sessao.md -Raw
+Get-Content .\docs\views_materializacoes_indices.md -Raw
 ```
 
-4. Se for necessario reexecutar as cargas PMB/sociodemografia, aplicar o bloco:
+Subir e validar banco:
 
 ```powershell
-docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /sql/01_staging/01_staging_small_medium.sql
-docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /sql/01_staging/02_staging_large.sql
-python scripts\load_staging.py
-python scripts\load_large_staging.py --include-pmb-go
-docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /sql/02_dimensoes/01_dim_uf.sql
-docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /sql/02_dimensoes/07_dim_perfil_eleitor.sql
-docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /sql/02_dimensoes/08_dim_municipio_recorte_pmb.sql
-docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /sql/04_fatos/04_fato_eleitorado_perfil_municipio_pmb.sql
-docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /sql/04_fatos/05_fato_sociodemografia_ra.sql
+docker compose up -d
+docker compose ps
+docker compose exec -T db pg_isready -U eleitoral_app -d eleitoral
 ```
 
-5. Testes SQL novos ja criados:
-
-- `tests/sql/13_pmb_test.sql`: valida 12 municipios, recorte PMB, 34.927 linhas na fato municipal, soma `qt_eleitores = 759538` e ausencia de erro PMB.
-- `tests/sql/14_sociodemografia_ra_test.sql`: valida 37 RAs, 592 indicadores, 37 resumos, populacao total 2.982.816, quatro RAs do desdobramento e ausencia de erro sociodemografico.
-
-6. Rodar suite de testes e consultas manuais:
+Rodar suite:
 
 ```powershell
 Get-ChildItem tests\sql\*.sql | Sort-Object Name | ForEach-Object { docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f ("/tests/sql/" + $_.Name) }
-docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select count(*) from dim.municipio;"
-docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select rg.codigo, count(*) from dim.recorte_geografico rg join dim.recorte_municipio rm on rm.recorte_id = rg.recorte_id group by rg.codigo;"
-docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select sum(qt_eleitores) from fato.eleitorado_perfil_municipio;"
-docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select count(distinct ra_id), count(*) from fato.sociodemografia_ra;"
-docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select severidade, regra, count(*) from aux.qualidade_dado group by severidade, regra order by severidade, regra;"
 ```
 
-7. Implementar views/indices de consulta para paineis, priorizando agregacoes eleitorais por RA/local/secao e joins opcionais com `fato.sociodemografia_ra`.
-8. Criar rotina unica de execucao das cargas/testes para reduzir comandos manuais.
+Validacao rapida:
+
+```powershell
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select count(*) from dim.regiao_administrativa;"
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select count(*) filter (where e.ano=2026) locais_2026, count(*) filter (where e.ano=2022) locais_2022 from dim.local_votacao lv join dim.eleicao e on e.eleicao_id=lv.eleicao_id;"
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select count(*) filter (where e.ano=2026) secoes_2026, count(*) filter (where e.ano=2022) secoes_2022 from dim.secao_eleitoral se join dim.eleicao e on e.eleicao_id=se.eleicao_id;"
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select count(*) as locais, sum(qtde_secoes::int) secoes, sum(qtde_eleitores_aptos::int) aptos, sum(qtde_eleitores_nao_aptos::int) nao_aptos, sum(qtde_eleitores_aptos::int)+sum(qtde_eleitores_nao_aptos::int) total from stg.tre_locais_2026_df where not is_total;"
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select count(distinct ra_id), count(*) from fato.sociodemografia_ra;"
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select count(*), max(ranking_top5) from fato.mv_votacao_top5;"
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select sum(qt_eleitores) from fato.eleitorado_perfil_municipio;"
+```
+
+Resultados esperados:
+
+- RAs: 37.
+- Locais: 622 em 2026, 18 em piloto 2022, 640 total.
+- Secoes: 7.050 em 2026, 219 em piloto 2022, 7.269 total.
+- TRE locais 2026: 614 locais, 6.961 secoes, 2.253.238 aptos, 308.799 nao aptos, 2.562.037 total.
+- Sociodemografia: 37 RAs, 592 indicadores.
+- `mv_votacao_top5`: 4.779 linhas, ranking maximo 5.
+- PMB: 759.538 eleitores.
 
 ## Reprocessamento completo se o banco estiver vazio
 
@@ -291,23 +330,26 @@ python scripts\load_votacao_piloto.py
 docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /sql/04_fatos/03_carga_piloto_votacao_2022.sql
 docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /sql/04_fatos/04_fato_eleitorado_perfil_municipio_pmb.sql
 docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /sql/04_fatos/05_fato_sociodemografia_ra.sql
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /sql/05_views/01_indices_consulta.sql
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /sql/05_views/02_votacao_materializacoes.sql
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /sql/05_views/03_votacao_views.sql
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /sql/05_views/04_eleitorado_views.sql
+Get-ChildItem tests\sql\*.sql | Sort-Object Name | ForEach-Object { docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f ("/tests/sql/" + $_.Name) }
 ```
 
-## Validacao rapida ao retomar
+## Proximos passos exatos
 
-```powershell
-python scripts\build_ra_sociodemografia_json.py
-python -X utf8 -c "import json; d=json.load(open('fontes/perfil_sociodemografico_ra_df_2025_estruturado.json',encoding='utf-8')); ras=d['regioes_administrativas']; print('ras', len(ras)); print('global', d['sociodemografia_geral_df']['demografia_raca_cor_geral']['total_geral']); print('sum', sum(ra['populacao_raca_cor']['total_geral'] for ra in ras)); print('fixed', [(ra['ra_nome'], ra['populacao_raca_cor']['total_geral']) for ra in ras if ra['ra_nome'] in ['GAMA','VICENTE PIRES','26 DE SETEMBRO','PONTE ALTA']]); print('adjusted_count', sum(1 for ra in ras if ra.get('derivacao',{}).get('tipo_ajuste_total_df') == 'rateio_proporcional_total_oficial'))"
-```
-
-Resultado esperado:
-
-```text
-RAs estruturadas: 37
-Populacao DF: 2982816
-ras 37
-global 2982816
-sum 2982816
-fixed [('GAMA', 88496), ('VICENTE PIRES', 75668), ('26 DE SETEMBRO', 29394), ('PONTE ALTA', 45452)]
-adjusted_count 33
-```
+1. Confirmar `git status --short` e preservar alteracoes pendentes.
+2. Subir Docker e rodar `pg_isready`.
+3. Rodar suite `tests/sql/00` a `18`.
+4. Implementar `sql/05_views/05_sociodemografia_views.sql`.
+5. Criar `tests/sql/19_sociodemografia_views_test.sql`.
+6. Implementar `sql/05_views/06_geo_views.sql`.
+7. Criar teste SQL para views geograficas.
+8. Implementar `sql/05_views/07_pmb_views.sql`.
+9. Criar teste SQL para views PMB.
+10. Opcional apos o basico: `08_expansao_views.sql` e `09_expansao_materializacoes.sql`.
+11. Rodar `analyze` e `explain analyze` nas consultas principais.
+12. Depois da Etapa 18, consolidar qualidade automatizada em `sql/99_qualidade/`.
+13. Criar rotina unica de carga/testes.
+14. Criar e testar backup/restore.

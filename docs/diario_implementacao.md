@@ -173,6 +173,87 @@ Este arquivo registra a execucao de cada etapa do planejamento.
 - Divergencias encontradas: a primeira execucao da fato PMB falhou porque o CTE de qualidade agrupava pelo alias `perfil_hash`; corrigido para agrupar explicitamente pelos campos de perfil. A primeira carga de sociodemografia casou apenas 26 RAs por acentuacao corrompida nos nomes; corrigido para priorizar `ra_codigo` e usar nome normalizado como fallback. `load_large_staging.py --include-pmb-go` truncava a staging de votacao quando `--include-votacao` nao era informado; corrigido para nao tocar em `stg.votacao_secao_2022_df` sem autorizacao explicita.
 - Decisao: Etapas 15 e 16 passam a estar validadas no banco. Foram criados `tests/sql/13_pmb_test.sql` e `tests/sql/14_sociodemografia_ra_test.sql`; `tests/sql/10_perfil_eleitor_test.sql` foi atualizado para `dim.perfil_eleitor = 13628` apos incorporar GO.
 
+## Planejamento da Etapa 18 - Views, materializacoes e indices
+
+- Data: 2026-09-09
+- Scripts executados: leitura da especificacao `fontes/especificacao-tecnica-painel-eleitoral.md`, inventario de tabelas/views/indices no PostgreSQL e suite `tests/sql/*.sql`.
+- Resultado: criado `docs/views_materializacoes_indices.md` com contratos de consumo para resultados eleitorais, eleitorado DF, sociodemografia por RA e PMB; tambem foram documentadas materialized views, views simples, indices recomendados, ordem de implementacao e testes minimos.
+- Consultas manuais: `pg_isready` retornou banco disponivel; suite SQL `00` a `14` retornou zero divergencias; inventario confirmou `fato.vw_votacao_drilldown` como unica view atual e fatos principais com `1.219.951` linhas de eleitorado por secao, `34.927` de eleitorado PMB, `592` indicadores sociodemograficos e `44.464` linhas da votacao piloto.
+- Divergencias encontradas: a especificacao do painel e baseada em 35 RAs e JSONs estaticos legados; a documentacao da Etapa 18 foi ajustada para 37 RAs oficiais, PMB como recorte de municipios e votacao 2022 apenas como piloto tecnico.
+- Decisao: implementar a Etapa 18 em arquivos `sql/05_views/`, comecando por indices de consulta e materializacoes de votacao/eleitorado, e criar `tests/sql/15_views_indices_test.sql`.
+
+## Expansoes futuras de views/materializacoes
+
+- Data: 2026-09-09
+- Scripts executados: inventario da estrutura do projeto, fontes disponiveis, contagens reais no PostgreSQL e revisao de `docs/views_materializacoes_indices.md`.
+- Resultado: `docs/views_materializacoes_indices.md` foi ampliado com inventario estrutural, propostas alem da especificacao original e indices futuros.
+- Consultas manuais: confirmados 37 RAs, 640 locais totais, 7.269 secoes totais, 13.628 perfis, 1.219.951 linhas de eleitorado DF, 34.927 linhas de eleitorado PMB, 592 indicadores sociodemograficos e 44.464 linhas da votacao piloto.
+- Divergencias encontradas: consultas globais de locais/secoes misturam 2026 DF com piloto 2022 se nao filtrarem `eleicao_id`; soma de populacao PMB duplica quando `dim.municipio` e juntada diretamente a fato de perfil sem pre-agregacao; `pg_stat_user_tables` pode exibir estimativas zeradas antes de `analyze`.
+- Decisao: propor views de catalogo/cobertura, territorio unificado, recortes expandidos, vizinhanca espacial, segmentacao DF/PMB, percentis sociodemograficos, resultado por partido/coligacao, comparativos historicos, candidato enriquecido, busca global, payload JSON opcional e views operacionais de tamanho/uso de indices.
+
+## Consistencia TRE/TSE e encerramento da sessao
+
+- Data: 2026-09-09
+- Scripts executados: consultas diretas nas tabelas `stg.tre_locais_2026_df`, `stg.tre_secoes_2026_df`, `stg.eleitorado_local_votacao_2026_df`, `dim.local_votacao`, `dim.secao_eleitoral` e `aux.qualidade_dado`; suite `tests/sql/*.sql`.
+- Resultado: atualizado `docs/resumo_contexto_proxima_sessao.md` com contexto denso para retomada, comandos de reinicio de conteineres, estado da arquitetura, contagens validadas, lacunas e proximos passos exatos.
+- Consultas manuais: `Locais_TRE_DF_2026.xlsx` fecha em 614 locais oficiais, 6.961 secoes, 2.253.238 aptos, 308.799 nao aptos e 2.562.037 eleitores totais; CSV TSE fecha em 622 pares `zona + local`, 7.050 secoes e 2.253.132 aptos; `dim.local_votacao` tem 640 locais no total por incluir 18 locais do piloto 2022; `dim.secao_eleitoral` tem 7.269 secoes no total por incluir 219 secoes do piloto 2022.
+- Divergencias encontradas: o numero `641` nao fecha como total de locais nas bases carregadas; aparece como numero de secao em registros de fonte. A diferenca de 106 aptos entre TRE e CSV/perfil segue documentada em `aux.qualidade_dado` como `divergencia_aptos_tre_csv`.
+- Decisao: usar como referencia oficial TRE 2026 `614 locais`, `6.961 secoes`, `2.253.238 aptos`, `308.799 nao aptos` e `2.562.037 total`; usar `622` como cobertura ampliada do CSV TSE 2026; filtrar sempre por `eleicao_id`/ano ao contar locais e secoes.
+
+## Etapa 18.1 - Indices de consulta
+
+- Data: 2026-09-09
+- Scripts executados: `sql/05_views/01_indices_consulta.sql`, `tests/sql/15_views_indices_test.sql` e suite completa `tests/sql/*.sql`.
+- Resultado: criada a extensao `pg_trgm` e aplicados indices de consulta para votacao, eleitorado DF, sociodemografia por RA, geografia, PMB, candidaturas, busca textual e staging grande. O script tambem executa `analyze` nas tabelas fato/dim mais consultadas.
+- Consultas manuais: `tests/sql/15_views_indices_test.sql` validou `pg_trgm` e os 30 indices esperados com zero divergencias. A suite SQL `00` a `15` retornou zero divergencias.
+- Divergencias encontradas: nenhuma.
+- Decisao: Etapa 18.1 concluida. Proximo passo operacional: implementar `sql/05_views/02_votacao_materializacoes.sql` e testes de agregacao de votacao.
+
+## Etapa 18.2 - Materializacoes de votacao
+
+- Data: 2026-09-09
+- Scripts executados: `sql/05_views/02_votacao_materializacoes.sql`, `tests/sql/16_votacao_materializacoes_test.sql` e suite completa `tests/sql/*.sql`.
+- Resultado: criadas `fato.mv_votacao_nivel` e, posteriormente, ajustada a materializacao derivada para `fato.mv_votacao_top5`. A primeira agrega votos por `geral`, `ra`, `local` e `secao` em formato longo por votavel; a segunda expoe os 5 primeiros colocados por nivel/territorio.
+- Consultas manuais: `fato.mv_votacao_nivel` ficou com 55.219 linhas e preservou 261.004 votos em cada nivel do piloto 2022; `fato.mv_votacao_top5` ficou com 4.779 linhas, sendo 20 gerais, 20 por RA nula do piloto, 360 por local e 4.379 por secao. Validacao especifica retornou zero divergencias; suite SQL `00` a `16` retornou zero divergencias.
+- Divergencias encontradas: nenhuma. A agregacao por RA do piloto 2022 fica em `ra_id` nulo, comportamento esperado porque a fonte piloto nao contem georreferenciamento/RA.
+- Decisao: Etapa 18.2 concluida. O contrato SQL deve manter apenas `TOP 5`; comparacoes de primeiro/segundo, margem e apresentacao `TOP 2` ficam a cargo do front-end. Proximo passo operacional: implementar `sql/05_views/03_votacao_views.sql` com views de resultado, top5, ranking/Pareto e consultas auxiliares de painel.
+
+## Etapa 18.3 - Views de votacao
+
+- Data: 2026-09-09
+- Scripts executados: `sql/05_views/03_votacao_views.sql`, `tests/sql/17_votacao_views_test.sql` e suite completa `tests/sql/*.sql`.
+- Resultado: criadas `fato.vw_votacao_resultado_nivel`, `fato.vw_votacao_top5`, `fato.vw_votacao_rank_pareto`, `fato.vw_vitorias_zeros_votavel`, `fato.vw_votacao_heatmap_top5` e `fato.vw_votacao_stacked_ra_top5`.
+- Consultas manuais: views retornaram 55.219 linhas em resultado por nivel, 4.779 em top5, 53.308 em ranking/Pareto, 53.308 em vitorias/zeros e 20 linhas nos top5 por RA. Validacao especifica retornou zero divergencias; suite SQL `00` a `17` retornou zero divergencias.
+- Divergencias encontradas: nenhuma. As views de Pareto e vitorias/zeros consideram apenas votos nominais e de legenda; brancos e nulos permanecem disponiveis em `vw_votacao_resultado_nivel`.
+- Decisao: Etapa 18.3 concluida. Proximo passo operacional: implementar `sql/05_views/04_eleitorado_views.sql` com agregacoes de perfil do eleitorado DF por RA, local e secao.
+
+## Etapa 18.4 - Views de eleitorado DF
+
+- Data: 2026-09-09
+- Scripts executados: `sql/05_views/04_eleitorado_views.sql`, `tests/sql/18_eleitorado_views_test.sql` e suite completa `tests/sql/*.sql`.
+- Resultado: criada `fato.mv_eleitorado_perfil_nivel` em formato longo por `ra`, `local`, `secao` e dimensao demografica; criadas `fato.vw_eleitorado_perfil_ra`, `fato.vw_eleitorado_perfil_local`, `fato.vw_eleitorado_perfil_secao` e `fato.vw_eleitorado_dominante_nivel`.
+- Consultas manuais: materializacao ficou com 346.143 linhas; views por nivel ficaram com 1.951 linhas em RA, 31.168 em local e 313.024 em secao; dominantes ficaram com 61.544 linhas. A soma da dimensao `genero` fecha 2.253.132 eleitores nos tres niveis. Validacao especifica retornou zero divergencias; suite SQL `00` a `18` retornou zero divergencias.
+- Divergencias encontradas: a primeira execucao encontrou erro interno do planner PostgreSQL `could not find memoization table entry`; o script foi ajustado para `set enable_memoize = off` somente durante a criacao da materializacao. No nivel RA, a fonte de perfil possui 36 RAs identificadas e 603 eleitores em RA nula; a RA oficial sem eleitorado perfil associado e `26 DE SETEMBRO`.
+- Decisao: Etapa 18.4 concluida. Proximo passo operacional: implementar `sql/05_views/05_sociodemografia_views.sql` com pivot de indicadores e RA analitica.
+
+## Ajuste de contrato - TOP 5 em votacao
+
+- Data: 2026-09-10
+- Scripts executados: `sql/05_views/02_votacao_materializacoes.sql`, `sql/05_views/03_votacao_views.sql`, `tests/sql/16_votacao_materializacoes_test.sql`, `tests/sql/17_votacao_views_test.sql` e suite completa `tests/sql/*.sql`.
+- Resultado: removido o contrato SQL de `TOP 2`/margem e substituido por `fato.mv_votacao_top5` e `fato.vw_votacao_top5`. Os scripts ainda removem objetos antigos `top2` quando existirem, para manter reprocessamento idempotente.
+- Consultas manuais: `fato.mv_votacao_top5` ficou com 4.779 linhas no piloto 2022: 20 em `geral`, 20 em `ra`, 360 em `local` e 4.379 em `secao`; ranking maximo 5 em todos os niveis. Suite SQL `00` a `18` retornou zero divergencias.
+- Divergencias encontradas: nenhuma apos ajuste. Os testes 16 e 17 validam explicitamente que nao existem materialized views, views ou indices `top2` no schema `fato`.
+- Decisao: manter apenas `TOP 5` em views, materializacoes e indices de consulta. Visualizacoes `TOP 2`, margem, lider/segundo e competitividade serao calculadas no front-end a partir de `ranking_top5`.
+
+## Encerramento da sessao - Etapa 18 parcial
+
+- Data: 2026-09-10
+- Scripts executados: atualizacao documental de `docs/resumo_contexto_proxima_sessao.md`, `docs/planejamento_implementacao_banco_eleitoral.md`, `docs/diario_implementacao.md` e `docs/validacoes_manuais.md`; suite SQL `tests/sql/00` a `18` executada antes do encerramento.
+- Resultado: resumo de retomada recriado com arquitetura, estado atual, comandos de reinicio dos conteineres, reprocessamento completo ate `sql/05_views/04_eleitorado_views.sql` e proximos passos exatos.
+- Consultas manuais: suite SQL `00` a `18` retornou zero divergencias; banco possui `fato.mv_votacao_top5` e `fato.vw_votacao_top5`; nao existem objetos ou indices `top2` no schema `fato`.
+- Divergencias encontradas: nenhuma nova.
+- Decisao: proxima sessao deve iniciar por `sql/05_views/05_sociodemografia_views.sql` e `tests/sql/19_sociodemografia_views_test.sql`, mantendo a regra oficial de 37 RAs e o contrato SQL apenas `TOP 5`.
+
 ## Modelo de registro para proximas etapas
 
 ```md

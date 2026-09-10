@@ -960,3 +960,390 @@ fato.sociodemografia_ra_resumo: 37 resumos
 aux.qualidade_dado para PMB/sociodemografia: 0 erros
 suite tests/sql/00 a 14: zero divergencias
 ```
+
+## Encerramento da sessao - Consistencia TRE/TSE 2026
+
+Consulta de totais por fonte:
+
+```powershell
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "with tre as (select count(*) filter (where not is_total) secoes_tre, count(distinct ze || '-' || num_local) locais_tre, sum(nullif(aptos,'')::int) aptos_tre_secoes, sum(nullif(suspensos,'')::int) suspensos_tre_secoes from stg.tre_secoes_2026_df), csv as (select count(*) secoes_csv, count(distinct nr_zona || '-' || nr_local_votacao) locais_csv, sum(nullif(qt_eleitor_secao,'')::int) aptos_csv from stg.eleitorado_local_votacao_2026_df), perfil as (select count(distinct nr_zona || '-' || nr_secao) secoes_perfil, sum(nullif(qt_eleitores,'')::int) eleitores_perfil from stg.perfil_eleitor_secao_2026_df) select * from tre cross join csv cross join perfil;"
+```
+
+Resultado obtido:
+
+```text
+secoes_tre: 6961
+locais_tre: 615
+aptos_tre_secoes: 4506476
+suspensos_tre_secoes: 69706
+secoes_csv: 7050
+locais_csv: 622
+aptos_csv: 2253132
+secoes_perfil: 7042
+eleitores_perfil: 2253132
+```
+
+Observacao:
+
+- A soma direta de `aptos` e `suspensos` em `stg.tre_secoes_2026_df` dobra valores porque a planilha de secoes possui informacao textual/agrupada que nao deve ser usada como total final por soma simples.
+- Para totais oficiais de aptos/nao aptos usar `stg.tre_locais_2026_df`.
+
+Consulta oficial TRE por locais:
+
+```powershell
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select count(*) as locais, sum(qtde_secoes::int) secoes, sum(qtde_eleitores_aptos::int) aptos, sum(qtde_eleitores_nao_aptos::int) nao_aptos, sum(qtde_eleitores_aptos::int)+sum(qtde_eleitores_nao_aptos::int) total_eleitores from stg.tre_locais_2026_df where not is_total;"
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select qtde_secoes::int secoes, qtde_eleitores_aptos::int aptos, qtde_eleitores_nao_aptos::int nao_aptos, qtde_eleitores_aptos::int + qtde_eleitores_nao_aptos::int total_eleitores from stg.tre_locais_2026_df where is_total;"
+```
+
+Resultado esperado:
+
+```text
+locais: 614
+secoes: 6961
+aptos: 2253238
+nao_aptos: 308799
+total_eleitores: 2562037
+```
+
+Consulta de dimensoes por eleicao:
+
+```powershell
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select count(*) filter (where e.ano=2026) locais_2026_total, count(*) filter (where e.ano=2026 and lv.is_principal) locais_2026_principais, count(*) filter (where e.ano=2026 and not lv.is_principal) locais_2026_adicionais, count(*) filter (where e.ano=2022) locais_2022_piloto, count(*) locais_dim_total from dim.local_votacao lv join dim.eleicao e on e.eleicao_id=lv.eleicao_id;"
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select count(*) filter (where e.ano=2026) secoes_2026_total, count(*) filter (where e.ano=2026 and se.is_secao_principal_tre) secoes_2026_principais_tre, count(*) filter (where e.ano=2026 and se.fonte_tre_confirmada) secoes_2026_tre_expandida, count(*) filter (where e.ano=2026 and se.ds_tipo_secao_agregada='Agregada') secoes_2026_agregadas_csv, count(*) filter (where e.ano=2026 and se.is_adicional_csv) secoes_2026_adicionais_csv, count(*) filter (where e.ano=2022) secoes_2022_piloto, count(*) secoes_dim_total from dim.secao_eleitoral se join dim.eleicao e on e.eleicao_id=se.eleicao_id;"
+```
+
+Resultado esperado:
+
+```text
+locais_2026_total: 622
+locais_2026_principais: 614
+locais_2026_adicionais: 8
+locais_2022_piloto: 18
+locais_dim_total: 640
+
+secoes_2026_total: 7050
+secoes_2026_principais_tre: 6961
+secoes_2026_tre_expandida: 7042
+secoes_2026_agregadas_csv: 81
+secoes_2026_adicionais_csv: 8
+secoes_2022_piloto: 219
+secoes_dim_total: 7269
+```
+
+Consulta de qualidade:
+
+```powershell
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select regra, severidade, count(*) from aux.qualidade_dado group by regra, severidade order by severidade, regra;"
+```
+
+Resultado esperado no encerramento:
+
+```text
+divergencia_aptos_tre_csv: aviso, 106
+local_csv_sem_tre: aviso, 8
+secao_csv_sem_perfil: aviso, 8
+secao_csv_sem_tre: aviso, 8
+local_sem_coordenada: erro, 3
+nr_local_votacao_reutilizado_em_zonas: info, 90
+```
+
+Decisao:
+
+- Referencia oficial TRE 2026: 614 locais, 6.961 secoes, 2.253.238 aptos, 308.799 nao aptos, 2.562.037 total.
+- Cobertura ampliada CSV TSE 2026: 622 pares `zona + local`, 7.050 secoes, 2.253.132 aptos.
+- O numero `641` nao e total de locais nas bases carregadas; aparece como numero de secao em registros de fonte.
+- Sempre filtrar por `eleicao_id`/ano ao contar locais e secoes, porque as dimensoes incluem tambem o piloto 2022.
+
+## Etapa 18.1 - Indices de consulta
+
+Aplicacao dos indices:
+
+```powershell
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /sql/05_views/01_indices_consulta.sql
+```
+
+Validacao especifica:
+
+```powershell
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /tests/sql/15_views_indices_test.sql
+```
+
+Resultado esperado:
+
+```text
+check_name | expected_value | actual_value
+-----------+----------------+-------------
+(0 rows)
+```
+
+Suite completa:
+
+```powershell
+Get-ChildItem tests\sql\*.sql | Sort-Object Name | ForEach-Object { Write-Host "RUN $($_.Name)"; docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f ("/tests/sql/" + $_.Name) }
+```
+
+Resultado obtido:
+
+```text
+tests/sql/00 a 15: zero divergencias
+```
+
+Decisao:
+
+- `pg_trgm` instalado no banco.
+- 30 indices de consulta esperados foram encontrados em `pg_indexes`.
+- A validacao seguinte cobre as materialized views de votacao da Etapa 18.2.
+
+## Etapa 18.2 - Materializacoes de votacao
+
+Aplicacao das materializacoes:
+
+```powershell
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /sql/05_views/02_votacao_materializacoes.sql
+```
+
+Validacao especifica:
+
+```powershell
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /tests/sql/16_votacao_materializacoes_test.sql
+```
+
+Resultado esperado:
+
+```text
+check_name | expected_value | actual_value
+-----------+----------------+-------------
+(0 rows)
+```
+
+Consultas de fechamento:
+
+```powershell
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select nivel, count(*) linhas, count(distinct cargo_id) cargos, sum(qt_votos) votos from fato.mv_votacao_nivel where ano=2022 and cd_eleicao=546 group by nivel order by nivel;"
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select nivel, count(*) linhas, sum(qt_votos) votos_top5, max(ranking_top5) max_rank from fato.mv_votacao_top5 where ano=2022 and cd_eleicao=546 group by nivel order by nivel;"
+```
+
+Resultados obtidos:
+
+```text
+mv_votacao_nivel:
+geral: 838 linhas, 4 cargos, 261004 votos
+local: 9079 linhas, 4 cargos, 261004 votos
+ra: 838 linhas, 4 cargos, 261004 votos
+secao: 44464 linhas, 4 cargos, 261004 votos
+
+mv_votacao_top5:
+geral: 20 linhas, 146736 votos no TOP 5, ranking maximo 5
+local: 360 linhas, 147784 votos no TOP 5, ranking maximo 5
+ra: 20 linhas, 146736 votos no TOP 5, ranking maximo 5
+secao: 4379 linhas, 149862 votos no TOP 5, ranking maximo 5
+```
+
+Suite completa:
+
+```powershell
+Get-ChildItem tests\sql\*.sql | Sort-Object Name | ForEach-Object { Write-Host "RUN $($_.Name)"; docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f ("/tests/sql/" + $_.Name) }
+```
+
+Resultado obtido:
+
+```text
+tests/sql/00 a 16: zero divergencias
+```
+
+Decisao:
+
+- As materializacoes de votacao preservam os totais do piloto 2022 em todos os niveis.
+- O nivel `ra` fica agregado em RA nula para o piloto 2022, porque a amostra tecnica nao tem RA/georreferencia.
+- Proxima etapa: criar views de consumo sobre as materializacoes.
+
+## Etapa 18.3 - Views de votacao
+
+Aplicacao das views:
+
+```powershell
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /sql/05_views/03_votacao_views.sql
+```
+
+Validacao especifica:
+
+```powershell
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /tests/sql/17_votacao_views_test.sql
+```
+
+Resultado esperado:
+
+```text
+check_name | expected_value | actual_value
+-----------+----------------+-------------
+(0 rows)
+```
+
+Consultas de fechamento:
+
+```powershell
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select 'resultado' view_name, count(*) from fato.vw_votacao_resultado_nivel union all select 'top5', count(*) from fato.vw_votacao_top5 union all select 'rank_pareto', count(*) from fato.vw_votacao_rank_pareto union all select 'vitorias_zeros', count(*) from fato.vw_vitorias_zeros_votavel union all select 'heatmap_top5', count(*) from fato.vw_votacao_heatmap_top5 union all select 'stacked_top5', count(*) from fato.vw_votacao_stacked_ra_top5 order by view_name;"
+```
+
+Resultado obtido:
+
+```text
+heatmap_top5: 20
+rank_pareto: 53308
+resultado: 55219
+stacked_top5: 20
+top5: 4779
+vitorias_zeros: 53308
+```
+
+Suite completa:
+
+```powershell
+Get-ChildItem tests\sql\*.sql | Sort-Object Name | ForEach-Object { Write-Host "RUN $($_.Name)"; docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f ("/tests/sql/" + $_.Name) }
+```
+
+Resultado obtido:
+
+```text
+tests/sql/00 a 17: zero divergencias
+```
+
+Decisao:
+
+- Views de consumo de votacao criadas sobre as materializacoes, sem duplicar calculos pesados.
+- O contrato SQL mantem apenas TOP 5; TOP 2, margem e comparacoes diretas ficam no front-end.
+- `vw_votacao_rank_pareto` e `vw_vitorias_zeros_votavel` consideram apenas votos nominais e de legenda.
+- Proxima etapa: agregacoes de eleitorado DF.
+
+## Etapa 18.4 - Views de eleitorado DF
+
+Aplicacao das views:
+
+```powershell
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /sql/05_views/04_eleitorado_views.sql
+```
+
+Validacao especifica:
+
+```powershell
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /tests/sql/18_eleitorado_views_test.sql
+```
+
+Resultado esperado:
+
+```text
+check_name | expected_value | actual_value
+-----------+----------------+-------------
+(0 rows)
+```
+
+Consultas de fechamento:
+
+```powershell
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select nivel, count(*) linhas, count(distinct dimensao) dimensoes from fato.mv_eleitorado_perfil_nivel group by nivel order by nivel;"
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select nivel, dimensao, sum(qt_eleitores) eleitores from fato.mv_eleitorado_perfil_nivel where ano=2026 and dimensao='genero' group by nivel, dimensao order by nivel;"
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select count(*) filter (where ra_id is null) linhas_ra_nula, sum(qt_eleitores) filter (where ra_id is null and dimensao='genero') eleitores_ra_nula_genero from fato.vw_eleitorado_perfil_ra;"
+```
+
+Resultado obtido:
+
+```text
+mv_eleitorado_perfil_nivel:
+local: 31168 linhas, 8 dimensoes
+ra: 1951 linhas, 8 dimensoes
+secao: 313024 linhas, 8 dimensoes
+
+totais por genero:
+local: 2253132 eleitores
+ra: 2253132 eleitores
+secao: 2253132 eleitores
+
+RA nula:
+43 linhas
+603 eleitores na dimensao genero
+```
+
+Suite completa:
+
+```powershell
+Get-ChildItem tests\sql\*.sql | Sort-Object Name | ForEach-Object { Write-Host "RUN $($_.Name)"; docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f ("/tests/sql/" + $_.Name) }
+```
+
+Resultado obtido:
+
+```text
+tests/sql/00 a 18: zero divergencias
+```
+
+Decisao:
+
+- A materializacao de eleitorado fecha 2.253.132 eleitores nos niveis RA, local e secao para a dimensao `genero`.
+- O nivel RA tem 36 RAs identificadas e um grupo sem RA; `26 DE SETEMBRO` nao possui perfil associado na fonte eleitoral carregada.
+- Proxima etapa: views de sociodemografia por RA.
+
+## Ajuste de contrato - TOP 5 em votacao
+
+Reaplicacao das materializacoes e views:
+
+```powershell
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /sql/05_views/02_votacao_materializacoes.sql
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /sql/05_views/03_votacao_views.sql
+```
+
+Validacoes especificas:
+
+```powershell
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /tests/sql/16_votacao_materializacoes_test.sql
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f /tests/sql/17_votacao_views_test.sql
+```
+
+Consultas de fechamento:
+
+```powershell
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select nivel, count(*) linhas, sum(qt_votos) votos_top5, max(ranking_top5) max_rank from fato.mv_votacao_top5 where ano=2022 and cd_eleicao=546 group by nivel order by nivel;"
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select n.nspname as schemaname, c.relname, c.relkind from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='fato' and c.relname ilike '%top2%' order by c.relname;"
+docker compose exec -T db psql -U eleitoral_app -d eleitoral -c "select count(*) from pg_indexes where schemaname='fato' and indexname ilike '%top2%';"
+```
+
+Resultado obtido:
+
+```text
+TOP 5:
+geral: 20 linhas, 146736 votos, ranking maximo 5
+local: 360 linhas, 147784 votos, ranking maximo 5
+ra: 20 linhas, 146736 votos, ranking maximo 5
+secao: 4379 linhas, 149862 votos, ranking maximo 5
+
+objetos top2 no schema fato: 0
+indices top2 no schema fato: 0
+tests/sql/00 a 18: zero divergencias
+```
+
+Decisao:
+
+- Manter apenas `TOP 5` no banco.
+- `TOP 2`, margem e comparacoes entre primeiro e segundo serao calculados no front-end a partir de `ranking_top5`.
+
+## Encerramento da sessao - 2026-09-10
+
+Estado validado no encerramento:
+
+- A suite `tests/sql/00` a `tests/sql/18` terminou com zero divergencias.
+- O contrato de votacao mantem somente `fato.mv_votacao_top5` e `fato.vw_votacao_top5`; nao ha objetos nem indices `top2` no schema `fato`.
+- A proxima entrega e `sql/05_views/05_sociodemografia_views.sql`, acompanhada de `tests/sql/19_sociodemografia_views_test.sql`.
+
+Retomada do ambiente:
+
+```powershell
+docker compose up -d
+docker compose ps
+docker compose exec -T db pg_isready -U eleitoral_app -d eleitoral
+```
+
+Nao usar `docker compose down -v`: o volume do PostgreSQL preserva a base carregada entre sessoes.
+
+Antes de iniciar a proxima etapa, executar novamente a suite completa:
+
+```powershell
+Get-ChildItem tests\sql\*.sql | Sort-Object Name | ForEach-Object { Write-Host "RUN $($_.Name)"; docker compose exec -T db psql -v ON_ERROR_STOP=1 -U eleitoral_app -d eleitoral -f ("/tests/sql/" + $_.Name) }
+```
